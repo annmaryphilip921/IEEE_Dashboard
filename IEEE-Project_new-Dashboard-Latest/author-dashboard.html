@@ -1,0 +1,691 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Author Dashboard - IEEE Project</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+        }
+        
+        .author-dashboard {
+            min-height: 100vh;
+            padding: 20px;
+            background: linear-gradient(135deg, #f0f4f8 0%, #f9fafb 100%);
+        }
+        
+        .author-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Header Section */
+        .author-header {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            border-left: 5px solid #1a3a8f;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .author-header h1 {
+            color: #1a3a8f;
+            font-size: 28px;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .author-header p {
+            color: #64748b;
+            font-size: 14px;
+            margin: 0;
+        }
+
+        /* Timeline Section */
+        .timeline-section {
+            background: white;
+            border-radius: 12px;
+            padding: 40px 30px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            margin-bottom: 30px;
+        }
+
+        .timeline-section h2 {
+            text-align: center;
+            color: #1a3a8f;
+            font-size: 24px;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .timeline-section-desc {
+            text-align: center;
+            color: #64748b;
+            font-size: 14px;
+            margin-bottom: 40px;
+        }
+
+        .timeline-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .timeline-item {
+            flex: 1;
+            min-width: 200px;
+            text-align: center;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .timeline-item:hover {
+            transform: translateY(-5px);
+        }
+
+        .timeline-dot {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 15px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            background: #cbd5e0;
+            border: 3px solid #e2e8f0;
+        }
+
+        .timeline-item.pending .timeline-dot {
+            background: #cbd5e0;
+            color: #64748b;
+            border-color: #a0aec0;
+        }
+
+        .timeline-item.active .timeline-dot {
+            background: linear-gradient(135deg, #1a3a8f, #2d5be3);
+            border-color: #1a3a8f;
+            box-shadow: 0 0 20px rgba(26, 58, 143, 0.3);
+            transform: scale(1.1);
+        }
+
+        .timeline-item.completed .timeline-dot {
+            background: linear-gradient(135deg, #059669, #047857);
+            border-color: #059669;
+            color: white;
+        }
+
+        .timeline-item.completed .timeline-dot::before {
+            content: 'âœ“';
+            font-size: 24px;
+        }
+
+        .timeline-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a3a8f;
+            margin-bottom: 6px;
+        }
+
+        .timeline-item.pending .timeline-title {
+            color: #64748b;
+        }
+
+        .timeline-item.completed .timeline-title {
+            color: #059669;
+        }
+
+        .timeline-date {
+            font-size: 13px;
+            color: #a0aec0;
+        }
+
+        .timeline-item.completed .timeline-date {
+            color: #059669;
+        }
+
+        .timeline-connector {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            width: calc(100% - 20px);
+            height: 3px;
+            background: #e2e8f0;
+            transform: translateX(-50%);
+            display: none;
+        }
+
+        .timeline-item:not(:last-child) .timeline-connector {
+            display: block;
+        }
+
+        .timeline-item.completed .timeline-connector {
+            background: linear-gradient(135deg, #059669, #047857);
+        }
+
+        .timeline-item.active .timeline-connector {
+            background: linear-gradient(135deg, #1a3a8f, #2d5be3);
+        }
+
+        /* Content Section */
+        .content-section {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            margin-bottom: 30px;
+        }
+
+        .content-section h3 {
+            color: #1a3a8f;
+            font-size: 20px;
+            margin-bottom: 15px;
+            font-weight: 700;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .btn-logout {
+            background: linear-gradient(135deg, #1a3a8f, #2d5be3);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-logout:hover {
+            background: linear-gradient(135deg, #0f2c6b, #1f47a3);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(26, 58, 143, 0.3);
+        }
+
+        .logout-section {
+            display: none;
+        }
+
+        /* My Papers Section */
+        .papers-section {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            margin-bottom: 30px;
+        }
+
+        .papers-section h3 {
+            color: #1a3a8f;
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .papers-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .papers-table thead tr {
+            background: #1a3a8f;
+            color: white;
+        }
+
+        .papers-table thead th {
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .papers-table tbody tr {
+            border-bottom: 1px solid #e2e8f0;
+            transition: background 0.2s;
+        }
+
+        .papers-table tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        .papers-table tbody tr:hover {
+            background: #f0f4ff;
+        }
+
+        .papers-table td {
+            padding: 13px 16px;
+            color: #374151;
+            vertical-align: middle;
+        }
+
+        .paper-id-badge {
+            background: #dde6ff;
+            color: #1a3a8f;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        .inv-status-accepted { background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .inv-status-declined { background: #fee2e2; color: #991b1b; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .inv-status-pending  { background: #fef9c3; color: #854d0e; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+
+        .btn-accept {
+            background: #059669;
+            color: white;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .btn-accept:hover { background: #047857; transform: translateY(-1px); }
+        .btn-decline {
+            background: white;
+            color: #dc2626;
+            border: 1.5px solid #dc2626;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .btn-decline:hover { background: #fee2e2; transform: translateY(-1px); }
+        
+        .btn-upload {
+            background: #2d5be3;
+            color: white;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .btn-upload:hover { background: #1a3a8f; transform: translateY(-1px); }
+        .btn-upload:disabled { opacity: 0.6; cursor: not-allowed; }
+        
+        .btn-accepted-label {
+            color: #059669;
+            font-size: 13px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .btn-declined-label {
+            color: #9ca3af;
+            font-size: 13px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .ack-options {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .ack-btn {
+            background: #f8fafc;
+            color: #1e293b;
+            border: 1px solid #cbd5e1;
+            padding: 7px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .ack-btn:hover {
+            background: #e2e8f0;
+            border-color: #94a3b8;
+        }
+
+        .ack-btn.active {
+            background: #dbeafe;
+            border-color: #2d5be3;
+            color: #1a3a8f;
+            font-weight: 700;
+        }
+
+        .ack-submit-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .ack-select {
+            flex: 1;
+            min-width: 0;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 7px 10px;
+            font-size: 12px;
+            color: #1e293b;
+            background: #fff;
+        }
+
+        .ack-select:focus {
+            outline: none;
+            border-color: #2d5be3;
+            box-shadow: 0 0 0 2px rgba(45, 91, 227, 0.15);
+        }
+
+        .btn-ack-submit {
+            background: #2d5be3;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 7px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .btn-ack-submit:hover {
+            background: #1a3a8f;
+            transform: translateY(-1px);
+        }
+
+        .ack-selected-label {
+            display: inline-block;
+            background: #dbeafe;
+            color: #1a3a8f;
+            border: 1px solid #93c5fd;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .submission-date-input {
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 7px 10px;
+            font-size: 12px;
+            color: #1e293b;
+            min-width: 150px;
+            background: #fff;
+        }
+
+        .submission-date-input:focus {
+            outline: none;
+            border-color: #2d5be3;
+            box-shadow: 0 0 0 2px rgba(45, 91, 227, 0.15);
+        }
+
+        .btn-chat-admin {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 7px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+            position: relative;
+        }
+
+        .btn-chat-admin:hover {
+            background: #059669;
+            transform: translateY(-1px);
+        }
+
+        .btn-chat-admin.chat-no-unread {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+
+        .btn-chat-admin.chat-no-unread:hover {
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+        }
+
+        .btn-chat-admin.chat-has-unread {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            animation: pulse-alert 2s infinite;
+        }
+
+        .btn-chat-admin.chat-has-unread:hover {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+        }
+
+        @keyframes pulse-alert {
+            0%, 100% {
+                box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+            }
+            50% {
+                box-shadow: 0 2px 16px rgba(239, 68, 68, 0.6);
+            }
+        }
+
+        .timeline-item.has-accepted-papers {
+            cursor: pointer;
+        }
+
+        .timeline-item.has-accepted-papers:hover .timeline-dot {
+            transform: scale(1.15);
+        }
+
+        /* Accepted Papers Section */
+        .accepted-papers-section {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            border-left: 5px solid #2d5be3;
+            display: none;
+        }
+
+        .accepted-papers-section.show {
+            display: block;
+        }
+
+        .accepted-papers-section h3 {
+            color: #1a3a8f;
+            font-size: 18px;
+            margin-bottom: 20px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .accepted-papers-section h3 i {
+            font-size: 20px;
+            color: #2d5be3;
+        }
+
+        .accepted-papers-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .accepted-papers-table thead tr {
+            background: #f0f4ff;
+            border-bottom: 2px solid #dde6ff;
+        }
+
+        .accepted-papers-table thead th {
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 700;
+            color: #1a3a8f;
+            font-size: 13px;
+        }
+
+        .accepted-papers-table tbody tr {
+            border-bottom: 1px solid #e2e8f0;
+            transition: background 0.2s;
+        }
+
+        .accepted-papers-table tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        .accepted-papers-table tbody tr:hover {
+            background: #f9fafb;
+        }
+
+        .accepted-papers-table td {
+            padding: 13px 16px;
+            color: #374151;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+    <div class="author-dashboard">
+        <div class="author-container">
+            <!-- Header -->
+            <div class="author-header">
+                <div>
+                    <h1>Welcome, <span id="authorName">Author</span>!</h1>
+                    <p>Track your paper submission progress</p>
+                </div>
+                <button class="btn-logout" onclick="logoutAuthor()">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </button>
+            </div>
+
+            <!-- Timeline Section -->
+            <div class="timeline-section">
+                <h2>Your Submission Timeline</h2>
+                <p class="timeline-section-desc">Follow your paper through each stage of the submission process</p>
+                
+                <div class="timeline-container">
+                    <!-- Stage 1: Invitation Acceptance -->
+                    <div class="timeline-item pending" id="timeline-invitation" onclick="toggleMyPapersSection()">
+                        <div class="timeline-dot">
+                            <i class="fas fa-envelope-open"></i>
+                        </div>
+                        <div class="timeline-title">Invitation Acceptance</div>
+                        <div class="timeline-date" id="date-invitation">Pending</div>
+                        <div class="timeline-connector"></div>
+                    </div>
+
+                    <!-- Stage 2: First Draft Submission -->
+                    <div class="timeline-item pending" id="timeline-first-draft" onclick="toggleAcceptedPapersSection()">
+                        <div class="timeline-dot">
+                            <i class="fas fa-file-alt"></i>
+                        </div>
+                        <div class="timeline-title">First Draft Submission</div>
+                        <div class="timeline-date" id="date-first-draft">Pending</div>
+                        <div class="timeline-connector"></div>
+                    </div>
+
+                    <!-- Stage 3: Completed Paper Submission -->
+                    <div class="timeline-item pending" id="timeline-paper-submission" onclick="toggleCompletedPapersSection()">
+                        <div class="timeline-dot">
+                            <i class="fas fa-file-upload"></i>
+                        </div>
+                        <div class="timeline-title">Completed Paper Submission</div>
+                        <div class="timeline-date" id="date-paper-submission">Pending</div>
+                        <div class="timeline-connector"></div>
+                    </div>
+
+                    <!-- Stage 4: Review by Reviewers -->
+                    <div class="timeline-item pending" id="timeline-review">
+                        <div class="timeline-dot">
+                            <i class="fas fa-search"></i>
+                        </div>
+                        <div class="timeline-title">Reviewing by Reviewers</div>
+                        <div class="timeline-date" id="date-review">Pending</div>
+                        <div class="timeline-connector"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Accepted Papers Section -->
+            <div class="accepted-papers-section" id="acceptedPapersSection">
+                <h3><i class="fas fa-check-circle"></i> Accepted Papers - First Draft Submission</h3>
+                <p style="color: #64748b; margin-bottom: 20px; font-size: 14px;">You have accepted the following papers. Please submit your first draft for each paper:</p>
+                <div id="acceptedPapersTableContainer">
+                    <p style="color:#a0aec0; text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>
+                </div>
+            </div>
+
+            <!-- Completed Paper Submission Section -->
+            <div class="accepted-papers-section" id="completedPapersSection">
+                <h3><i class="fas fa-file-upload"></i> Accepted Papers - Completed Paper Submission</h3>
+                <p style="color: #64748b; margin-bottom: 20px; font-size: 14px;">Upload PDF and Word versions for each accepted paper. Uploaded files become downloadable once submitted.</p>
+                <div id="completedPapersTableContainer">
+                    <p style="color:#a0aec0; text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>
+                </div>
+            </div>
+
+            <!-- My Papers Section -->
+            <div class="papers-section">
+                <h3><i class="fas fa-file-alt"></i> My Papers</h3>
+                <div id="papersTableContainer">
+                    <p style="color:#a0aec0; text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading papers...</p>
+                </div>
+            </div>
+
+            <!-- Logout Section -->
+            <div class="logout-section">
+                <button class="btn-logout" onclick="logoutAuthor()">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="author-dashboard.js"></script>
+</body>
+</html>

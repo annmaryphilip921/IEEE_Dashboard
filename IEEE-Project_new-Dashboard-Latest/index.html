@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In - IEEE Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <main class="template-shell">
+        <section class="template-card">
+            <div class="template-left">
+                <p class="welcome-tag">Welcome to</p>
+                <h1>IEEE PCIC 2026</h1>
+                <p class="left-copy">Paper Submission and Review Dashboard</p>
+                <div class="side-image-wrap">
+                    <img src="uploads/branding/ieee-pcic-2026.png" alt="" class="side-image" onerror="this.style.display='none'" />
+                </div>
+            </div>
+
+            <div class="template-right">
+                <div class="right-head">
+                    <h2>Sign In</h2>
+                    <p>Access your admin or author workspace securely.</p>
+                </div>
+
+                <form id="loginForm" class="auth-form" novalidate>
+                    <label class="field-label" for="loginIdentity">Email ID</label>
+                    <div class="field-row">
+                        <i class="fas fa-envelope"></i>
+                        <input id="loginIdentity" name="identity" type="email" placeholder="Enter your email id" autocomplete="username" required>
+                    </div>
+
+                    <label class="field-label" for="loginPassword">Password</label>
+                    <div class="field-row">
+                        <i class="fas fa-lock"></i>
+                        <input id="loginPassword" name="password" type="password" placeholder="Enter password" autocomplete="current-password" required>
+                        <button type="button" id="togglePassword" class="icon-btn" aria-label="Toggle password visibility">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+
+                    <div class="form-row">
+                        <button type="button" id="forgotPasswordBtn" class="link-btn">Forgot password?</button>
+                    </div>
+
+                    <p id="formMessage" class="form-message" role="status" aria-live="polite"></p>
+
+                    <button id="submitBtn" type="submit" class="submit-btn">
+                        <span class="btn-text">Sign In</span>
+                        <i class="fas fa-arrow-right"></i>
+                    </button>
+                </form>
+
+                <div class="contact-box">
+                    <h3>Contact Details</h3>
+                    <p><i class="fas fa-envelope"></i> ieeepcic2026@conference.org</p>
+                    <p><i class="fas fa-phone"></i> +63 2 8123 4567</p>
+                    <p><i class="fas fa-globe"></i> www.ieeepcic2026.org</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

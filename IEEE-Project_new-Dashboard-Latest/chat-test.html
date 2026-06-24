@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Test - IEEE Project</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .chat-box {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .messages {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 15px;
+            background: #fafafa;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 5px;
+        }
+        .user-message {
+            background: #007bff;
+            color: white;
+            text-align: right;
+        }
+        .admin-message {
+            background: #e9ecef;
+            color: #333;
+        }
+        .input-area {
+            display: flex;
+            gap: 10px;
+        }
+        .input-area input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .input-area button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .input-area button:hover {
+            background: #0056b3;
+        }
+        .debug {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 10px;
+            margin-top: 15px;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-box">
+        <h2>Chat Test Interface</h2>
+        <p>Testing chat functionality for IEEE Dashboard</p>
+        
+        <div class="messages" id="messages">
+            <div class="message admin-message">
+                <strong>Admin:</strong> Welcome to the chat test interface!
+            </div>
+        </div>
+        
+        <div class="input-area">
+            <input type="text" id="messageInput" placeholder="Type your message here..." onkeypress="handleKeyPress(event)">
+            <button onclick="sendTestMessage()" id="sendBtn">Send</button>
+        </div>
+        
+        <div class="debug" id="debug">
+            Debug info will appear here...
+        </div>
+    </div>
+
+    <script>
+        let messageCount = 0;
+        
+        function updateDebug(message) {
+            const debugDiv = document.getElementById('debug');
+            const timestamp = new Date().toLocaleTimeString();
+            debugDiv.innerHTML += `<br>[${timestamp}] ${message}`;
+            debugDiv.scrollTop = debugDiv.scrollHeight;
+        }
+        
+        function sendTestMessage() {
+            updateDebug('sendTestMessage() called');
+            
+            const messageInput = document.getElementById('messageInput');
+            const messageText = messageInput.value.trim();
+            
+            updateDebug(`Message text: "${messageText}"`);
+            
+            if (!messageText) {
+                updateDebug('No message text, returning');
+                return;
+            }
+            
+            messageCount++;
+            updateDebug(`Message count: ${messageCount}`);
+            
+            // Add message to display
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message user-message';
+            messageDiv.innerHTML = `<strong>You:</strong> ${messageText}`;
+            
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            
+            updateDebug('Message added to display');
+            
+            // Clear input
+            messageInput.value = '';
+            updateDebug('Input cleared');
+            
+            // Simulate admin response after 2 seconds
+            setTimeout(() => {
+                const adminResponse = document.createElement('div');
+                adminResponse.className = 'message admin-message';
+                adminResponse.innerHTML = `<strong>Admin:</strong> Thank you for your message "${messageText}". This is an automated response.`;
+                messagesDiv.appendChild(adminResponse);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                updateDebug('Admin auto-response added');
+            }, 2000);
+            
+            updateDebug('sendTestMessage() completed successfully');
+        }
+        
+        function handleKeyPress(event) {
+            updateDebug(`Key pressed: ${event.key}`);
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                sendTestMessage();
+            }
+        }
+        
+        // Test button functionality on load
+        document.addEventListener('DOMContentLoaded', function() {
+            updateDebug('Page loaded, testing button functionality');
+            const sendBtn = document.getElementById('sendBtn');
+            updateDebug(`Send button found: ${sendBtn ? 'YES' : 'NO'}`);
+            
+            if (sendBtn) {
+                updateDebug(`Send button onclick: ${sendBtn.onclick ? 'SET' : 'NOT SET'}`);
+            }
+            
+            const messageInput = document.getElementById('messageInput');
+            updateDebug(`Message input found: ${messageInput ? 'YES' : 'NO'}`);
+            
+            // Focus on input
+            if (messageInput) {
+                messageInput.focus();
+                updateDebug('Input focused');
+            }
+        });
+    </script>
+</body>
+</html>

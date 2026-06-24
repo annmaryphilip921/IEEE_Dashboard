@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Author Dashboard - IEEE Project</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .info-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .logout-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            float: right;
+        }
+        .logout-btn:hover {
+            background: #c82333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <button class="logout-btn" onclick="logout()">Logout</button>
+        <h1>Welcome, <span id="authorName">Author</span>!</h1>
+        
+        <div class="info-section">
+            <h3>Personal Information</h3>
+            <p><strong>Name:</strong> <span id="fullName">Loading...</span></p>
+            <p><strong>Email:</strong> <span id="email">Loading...</span></p>
+            <p><strong>Company:</strong> <span id="company">Loading...</span></p>
+        </div>
+
+        <div class="info-section">
+            <h3>Paper Details</h3>
+            <p><strong>Title:</strong> <span id="paperTitle">Loading...</span></p>
+            <p><strong>Paper ID:</strong> <span id="paperId">Loading...</span></p>
+        </div>
+
+        <div class="info-section">
+            <h3>Login Credentials</h3>
+            <p><strong>User ID:</strong> <span id="userId">Loading...</span></p>
+            <p><strong>Password:</strong> <span id="userPassword">••••••••</span></p>
+            <button onclick="togglePassword()">Show Password</button>
+        </div>
+    </div>
+
+    <script src="database.js"></script>
+    <script>
+        // Simple author dashboard JavaScript
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Author dashboard loading...');
+            
+            // Check if user is authenticated
+            const session = getSession();
+            console.log('Session:', session);
+            
+            if (!session || !session.user) {
+                console.log('No session found, redirecting to login');
+                window.location.href = 'index.html';
+                return;
+            }
+
+            // If admin tries to access author dashboard, redirect
+            if (session.user.userType === 'admin') {
+                console.log('Admin user detected, redirecting to admin dashboard');
+                window.location.href = 'dashboard.html';
+                return;
+            }
+
+            console.log('Author user detected, loading data');
+            loadAuthorData(session.user);
+        });
+
+        function loadAuthorData(author) {
+            try {
+                console.log('Loading author data:', author);
+                
+                // Populate basic info
+                document.getElementById('authorName').textContent = author.firstName + ' ' + author.lastName;
+                document.getElementById('fullName').textContent = author.firstName + ' ' + author.lastName;
+                document.getElementById('email').textContent = author.email || 'Not provided';
+                document.getElementById('company').textContent = author.company || 'Not provided';
+                
+                // Populate paper info
+                document.getElementById('paperTitle').textContent = author.paperTitle || 'Not provided';
+                document.getElementById('paperId').textContent = author.paperId || 'Not assigned';
+                
+                // Populate credentials
+                document.getElementById('userId').textContent = author.userId || 'Not available';
+                
+                // Store password for toggle
+                window.authorPassword = author.password || 'Not available';
+                
+                console.log('Author data loaded successfully');
+            } catch (error) {
+                console.error('Error loading author data:', error);
+                document.getElementById('authorName').textContent = 'Error loading data';
+            }
+        }
+
+        function togglePassword() {
+            const passwordElement = document.getElementById('userPassword');
+            if (passwordElement.textContent === '••••••••') {
+                passwordElement.textContent = window.authorPassword;
+            } else {
+                passwordElement.textContent = '••••••••';
+            }
+        }
+
+        function logout() {
+            if (confirm('Are you sure you want to logout?')) {
+                clearSession();
+                window.location.href = 'index.html';
+            }
+        }
+
+        // Utility functions
+        function getSession() {
+            try {
+                const session = localStorage.getItem('ieee_session');
+                return session ? JSON.parse(session) : null;
+            } catch (e) {
+                console.error('Error getting session:', e);
+                return null;
+            }
+        }
+
+        function clearSession() {
+            localStorage.removeItem('ieee_session');
+        }
+    </script>
+</body>
+</html>

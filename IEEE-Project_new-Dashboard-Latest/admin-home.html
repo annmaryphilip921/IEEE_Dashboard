@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - IEEE Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="admin-home.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <main class="home-shell">
+        <header class="home-topbar">
+            <div class="brand">
+                <i class="fas fa-shield-alt"></i>
+                <div>
+                    <p class="brand-kicker">IEEE PCIC 2026</p>
+                    <h1>Admin Dashboard</h1>
+                </div>
+            </div>
+
+            <div class="topbar-actions">
+                <div class="admin-pill" id="adminIdentity">Admin</div>
+                <button id="logoutBtn" class="logout-btn" type="button">
+                    <i class="fas fa-sign-out-alt"></i>
+                    Logout
+                </button>
+            </div>
+        </header>
+
+        <section class="hero">
+            <h2>Choose Your Workspace</h2>
+        </section>
+
+        <section class="button-grid">
+            <button class="action-card" data-target="authors" type="button">
+                <div class="action-icon"><i class="fas fa-users"></i></div>
+                <h3>Authors</h3>
+                <p>Manage author accounts, credentials, and invitations.</p>
+            </button>
+
+            <button class="action-card" data-target="reviewers" type="button">
+                <div class="action-icon"><i class="fas fa-user-check"></i></div>
+                <h3>Reviewers</h3>
+                <p>Open review workflow, assignments, and status tracking.</p>
+            </button>
+
+            <button class="action-card" data-target="vault" type="button">
+                <div class="action-icon"><i class="fas fa-vault"></i></div>
+                <h3>Document Vault</h3>
+                <p>Upload, organize, and access conference documents.</p>
+            </button>
+        </section>
+    </main>
+
+    <script src="admin-home.js"></script>
+</body>
+</html>

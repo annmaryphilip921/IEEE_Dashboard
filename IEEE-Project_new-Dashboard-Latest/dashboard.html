@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - IEEE Project</title>
+    <link rel="stylesheet" href="dashboard-style.css">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Ensure scrolling is always enabled on admin dashboard */
+        body {
+            overflow: auto !important;
+            height: auto !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Top Navigation Bar -->
+        <nav class="top-navbar">
+            <div class="navbar-left">
+                <a href="admin-home.html" class="logo-link">
+                    <div class="logo">
+                        <i class="fas fa-project-diagram"></i>
+                        <h3>IEEE Dashboard</h3>
+                    </div>
+                </a>
+                
+                <div class="nav-menu">
+                    <ul>
+                        <li class="active">
+                            <a href="#dashboard">
+                                <i class="fas fa-project-diagram"></i>
+                                <span>Dashboard</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a href="#projects">
+                                <i class="fas fa-file-alt"></i>
+                                <span>Draft Review</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a href="#documents">
+                                <i class="fas fa-folder-open"></i>
+                                <span>Document Vault</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a href="#email-templates">
+                                <i class="fas fa-envelope"></i>
+                                <span>Email Templates</span>
+                                </a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="navbar-right">
+                <div class="user-info-horizontal">
+                    <div class="user-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="user-details">
+                        <span class="user-name" id="userName">Loading...</span>
+                        <span class="user-role" id="userRole">Loading...</span>
+                    </div>
+                </div>
+                <button class="logout-btn" id="logoutBtn">
+                    <i class="fas fa-sign-out-alt"></i>
+                    Logout
+                </button>
+            </div>
+        </nav>
+        
+        <!-- Main Content -->
+        <main class="main-content-full">
+            <!-- Content starts directly here since header is now in top navbar -->
+            <div class="content">
+                <!-- Dashboard content will be loaded here -->
+            </div>
+        </main>
+    </div>
+    
+    <script src="database.js"></script>
+    <script src="dashboard.js"></script>
+</body>
+    <script src="email-templates.js"></script>
+
+
+</html>
