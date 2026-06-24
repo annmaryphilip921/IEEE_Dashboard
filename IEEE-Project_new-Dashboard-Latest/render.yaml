@@ -2,6 +2,7 @@ services:
   - type: web
     name: ieee-dashboard
     runtime: node
+    rootDir: IEEE-Project_new-Dashboard-Latest
     plan: starter
     buildCommand: npm install
     startCommand: npm start
