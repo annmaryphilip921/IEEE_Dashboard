@@ -28,7 +28,8 @@ function loadUserInfo() {
         }
         
         if (userRoleElement) {
-            userRoleElement.textContent = user.role;
+            userRoleElement.textContent = '';
+            userRoleElement.style.display = 'none';
         }
         
         if (headerUserNameElement) {
@@ -72,8 +73,28 @@ function initializeDashboard() {
     // Navbar navigation
     initializeNavbarNavigation();
     
-    // Load dashboard data
-    loadDashboardData();
+    // Check if navigating directly to a specific section from hash
+    const hash = window.location.hash.substring(1);
+    if (hash && hash !== 'dashboard') {
+        // Load the section from hash instead of default dashboard
+        loadSection(hash);
+        updateActiveNavLink(hash);
+    } else {
+        // Load dashboard data
+        loadDashboardData();
+    }
+}
+
+function updateActiveNavLink(section) {
+    const navLinks = document.querySelectorAll('.nav-menu a');
+    navLinks.forEach(link => {
+        const href = link.getAttribute('href').substring(1);
+        if (href === section) {
+            link.classList.add('active');
+        } else {
+            link.classList.remove('active');
+        }
+    });
 }
 
 function initializeNavbarNavigation() {
@@ -164,7 +185,7 @@ function loadDashboardContent() {
                         <i class="fas fa-bell"></i>
                     </div>
                     <div class="timeline-content">
-                        <div class="timeline-title">First Draft Reminder</div>
+                        <div class="timeline-title">First Draft</div>
                         <div class="timeline-date">Pending</div>
                     </div>
                     <div class="timeline-connector"></div>
@@ -351,7 +372,7 @@ function loadTimelineSpecificContent(timelineType) {
             contentArea.innerHTML = `
                 <div class="timeline-dashboard">
                     <div class="dashboard-header">
-                        <h3><i class="fas fa-bell"></i> First Draft Reminder</h3>
+                        <h3><i class="fas fa-bell"></i> First Draft</h3>
                         <p>Send initial reminders for paper submission deadline</p>
                     </div>
                     <div class="dashboard-actions">
@@ -1656,7 +1677,7 @@ async function openProgressTrackingModal(stage) {
     const stageTitles = {
         "logins-created": "Logins Created",
         "invitation-send": "Invitation Send",
-        "first-draft-reminder": "First Draft Reminder",
+        "first-draft-reminder": "First Draft",
         "paper-submission": "Paper Submission",
         "review-in-progress": "Review in Progress"
     };
@@ -1670,6 +1691,7 @@ async function openProgressTrackingModal(stage) {
     
     const isFirstDraftReminderStage = stage === 'first-draft-reminder';
     const isPaperSubmissionStage = stage === 'paper-submission';
+    const showBulkStatusButtons = !(isFirstDraftReminderStage || isPaperSubmissionStage);
     const requiresAcceptedInvitationOnly = isFirstDraftReminderStage || isPaperSubmissionStage;
     const relevantAuthors = requiresAcceptedInvitationOnly
         ? authorsData.filter(author => (author.invitationStatus || '').toLowerCase() === 'accepted')
@@ -1955,6 +1977,7 @@ async function openProgressTrackingModal(stage) {
                         </div>
                     </div>
                     
+                    ${showBulkStatusButtons ? `
                     <!-- Progress Controls -->
                     <div class="progress-controls">
                         <div class="progress-actions">
@@ -1969,6 +1992,7 @@ async function openProgressTrackingModal(stage) {
                             </button>
                         </div>
                     </div>
+                    ` : ''}
                     
                     <!-- Progress Table -->
                     ${totalCount > 0 ? progressTableMarkup : `
@@ -2224,7 +2248,7 @@ async function openTimelineModal(stage) {
     const stageTitles = {
         "logins-created": "Logins Created",
         "invitation-send": "Conference Invitation",
-        "first-draft-reminder": "First Draft Reminder",
+        "first-draft-reminder": "First Draft",
         "paper-submission": "Final Paper Reminder",
         "review-in-progress": "Review in Progress"
     };
@@ -2394,7 +2418,15 @@ async function openInvitationTrackingModal() {
             let statusText = '';
             let statusClass = '';
             
-            if (!invitationSent) {
+            if (rejectionEmailSentAt) {
+                // Rejection mail itself counts as invitation communication,
+                // even if invitation-send stage was not marked completed.
+                sentCount++;
+                statusIcon = '<i class="fas fa-ban" style="color: #dc2626;"></i>';
+                statusText = 'Paper Rejected';
+                statusClass = 'declined';
+                declinedCount++;
+            } else if (!invitationSent) {
                 statusIcon = '<i class="fas fa-circle" style="color: #6b7280;"></i>';
                 statusText = 'Not Sent';
                 statusClass = 'not-sent';
@@ -2402,31 +2434,24 @@ async function openInvitationTrackingModal() {
             } else {
                 sentCount++;
 
-                if (rejectionEmailSentAt) {
-                    statusIcon = '<i class="fas fa-ban" style="color: #dc2626;"></i>';
-                    statusText = 'Paper Rejected';
-                    statusClass = 'declined';
-                    declinedCount++;
-                } else {
-                    switch (invitationStatus) {
-                        case 'accepted':
-                            statusIcon = '<i class="fas fa-check-circle" style="color: #059669;"></i>';
-                            statusText = 'Accepted';
-                            statusClass = 'accepted';
-                            acceptedCount++;
-                            break;
-                        case 'declined':
-                            statusIcon = '<i class="fas fa-times-circle" style="color: #dc2626;"></i>';
-                            statusText = 'Declined';
-                            statusClass = 'declined';
-                            declinedCount++;
-                            break;
-                        default:
-                            statusIcon = '<i class="fas fa-clock" style="color: #f59e0b;"></i>';
-                            statusText = firstLoginCompleted ? 'Pending Response' : 'Awaiting First Login';
-                            statusClass = 'pending';
-                            pendingCount++;
-                    }
+                switch (invitationStatus) {
+                    case 'accepted':
+                        statusIcon = '<i class="fas fa-check-circle" style="color: #059669;"></i>';
+                        statusText = 'Accepted';
+                        statusClass = 'accepted';
+                        acceptedCount++;
+                        break;
+                    case 'declined':
+                        statusIcon = '<i class="fas fa-times-circle" style="color: #dc2626;"></i>';
+                        statusText = 'Declined';
+                        statusClass = 'declined';
+                        declinedCount++;
+                        break;
+                    default:
+                        statusIcon = '<i class="fas fa-clock" style="color: #f59e0b;"></i>';
+                        statusText = firstLoginCompleted ? 'Pending Response' : 'Awaiting First Login';
+                        statusClass = 'pending';
+                        pendingCount++;
                 }
             }
             
@@ -2443,6 +2468,7 @@ async function openInvitationTrackingModal() {
                 <tr class="itr-row" data-author-id="${author.id}">
                     <td class="itr-author-name">${author.firstName} ${author.lastName}</td>
                     <td class="itr-email">${author.email}</td>
+                    <td class="itr-paper-id">${author.paperId || 'N/A'}</td>
                     <td class="itr-paper-title">${author.paperTitle}</td>
                     <td class="itr-date">${sentDate}</td>
                     <td><span class="itr-status itr-status-${statusClass}">${statusIcon} ${statusText}</span></td>
@@ -2517,6 +2543,7 @@ async function openInvitationTrackingModal() {
                                 <tr>
                                     <th style="width:130px;">Author Name</th>
                                     <th style="width:160px;">Email</th>
+                                    <th style="width:120px;">Paper ID</th>
                                     <th style="width:320px;">Paper Title</th>
                                     <th style="width:110px;">Invitation Sent</th>
                                     <th style="width:150px;">Response Status</th>
@@ -2562,7 +2589,22 @@ function toggleSelectAllProgress() {
     });
 }
 
-function bulkUpdateProgress(status, stage) {
+async function updateAuthorProgressInBackend(authorId, stage, status, notes = '') {
+    const response = await fetch(`/authors/${authorId}/progress`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage, status, notes })
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to update progress in backend');
+    }
+
+    return result.progress;
+}
+
+async function bulkUpdateProgress(status, stage) {
     const selectedCheckboxes = document.querySelectorAll('.progress-checkbox:checked');
     
     if (selectedCheckboxes.length === 0) {
@@ -2572,25 +2614,40 @@ function bulkUpdateProgress(status, stage) {
     
     const confirmed = confirm(`Are you sure you want to mark ${selectedCheckboxes.length} selected author(s) as ${status} for this stage?`);
     
-    if (confirmed) {
-        const selectedIds = Array.from(selectedCheckboxes).map(cb => parseInt(cb.value));
-        let updated = 0;
-        
-        selectedIds.forEach(authorId => {
-            if (updateAuthorProgress(authorId, stage, status, `Bulk updated to ${status}`)) {
-                updated++;
-            }
-        });
-        
-        if (updated > 0) {
-            alert(`Successfully updated ${updated} author(s) to ${status}.`);
-            // Refresh the modal
-            closeProgressTrackingModal();
-            setTimeout(() => {
-                openProgressTrackingModal(stage);
-            }, 100);
+    if (!confirmed) {
+        return;
+    }
+
+    const selectedIds = Array.from(selectedCheckboxes)
+        .map(cb => parseInt(cb.value, 10))
+        .filter(id => Number.isInteger(id) && id > 0);
+
+    if (selectedIds.length === 0) {
+        alert('No valid authors selected.');
+        return;
+    }
+
+    let updated = 0;
+    for (const authorId of selectedIds) {
+        try {
+            await updateAuthorProgressInBackend(authorId, stage, status, `Bulk updated to ${status}`);
+            updated++;
+        } catch (error) {
+            console.error(`Failed to update author ${authorId}:`, error);
         }
     }
+
+    if (updated > 0) {
+        invalidateAuthorsCache();
+        alert(`Successfully updated ${updated} author(s) to ${status}.`);
+        closeProgressTrackingModal();
+        setTimeout(() => {
+            openProgressTrackingModal(stage);
+        }, 100);
+        return;
+    }
+
+    alert('No records were updated. Please try again.');
 }
 
 function openUpdateProgressModal(authorId, stage) {
@@ -2611,7 +2668,7 @@ function openUpdateProgressModal(authorId, stage) {
     const stageTitles = {
         "logins-created": "Logins Created",
         "invitation-send": "Invitation Send",
-        "first-draft-reminder": "First Draft Reminder",
+        "first-draft-reminder": "First Draft",
         "paper-submission": "Paper Submission",
         "review-in-progress": "Review in Progress"
     };
@@ -2671,14 +2728,16 @@ function closeUpdateProgressModal() {
     }
 }
 
-function submitProgressUpdate(event, authorId, stage) {
+async function submitProgressUpdate(event, authorId, stage) {
     event.preventDefault();
     
     const formData = new FormData(event.target);
     const status = formData.get('status');
     const notes = formData.get('notes');
-    
-    if (updateAuthorProgress(authorId, stage, status, notes)) {
+
+    try {
+        await updateAuthorProgressInBackend(authorId, stage, status, notes);
+        invalidateAuthorsCache();
         alert('Progress updated successfully!');
         closeUpdateProgressModal();
         
@@ -2691,8 +2750,9 @@ function submitProgressUpdate(event, authorId, stage) {
                 }, 100);
             }
         }, 100);
-    } else {
-        alert('Error updating progress. Please try again.');
+    } catch (error) {
+        console.error('submitProgressUpdate error:', error);
+        alert(`Error updating progress: ${error.message}`);
     }
 }
 
@@ -2728,43 +2788,248 @@ function loadDocumentsContent() {
     content.innerHTML = `
         <div class="page-header">
             <h2>Document Vault</h2>
-            <p style="color: #666; margin-top: 10px;">Upload admin documents after malware scanning and track upload dates</p>
-        </div>
-
-        <div class="card" style="margin-bottom: 20px;">
-            <div class="card-header">
-                <h3><i class="fas fa-upload"></i> Upload Document</h3>
-            </div>
-            <div class="card-content">
-                <form id="adminDocumentUploadForm" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-                    <input type="file" id="adminDocumentFile" name="documentFile" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" required>
-                    <button type="submit" class="btn-primary">
-                        <i class="fas fa-cloud-upload-alt"></i> Scan & Upload
-                    </button>
-                    <small style="color:#666;">Allowed: PDF, Word, Excel, PowerPoint, TXT, CSV. Max: 25 MB</small>
-                </form>
-            </div>
+            <p style="color: #666; margin-top: 10px;">Manage documents for authors and reviewers</p>
         </div>
 
         <div class="card">
             <div class="card-header">
-                <h3><i class="fas fa-table"></i> Uploaded Documents</h3>
-                <button class="btn-primary" onclick="refreshAdminDocuments()">
-                    <i class="fas fa-sync-alt"></i> Refresh
-                </button>
+                <div style="display: flex; gap: 10px; border-bottom: 2px solid #f0f0f0; padding-bottom: 15px;">
+                    <button class="tab-btn active" onclick="switchDocumentTab('authors')" style="background: none; border: none; padding: 8px 16px; font-size: 16px; cursor: pointer; border-bottom: 3px solid #2563eb; color: #2563eb; font-weight: 500;">
+                        <i class="fas fa-users"></i> Upload Author Documents
+                    </button>
+                    <button class="tab-btn" onclick="switchDocumentTab('reviewers')" style="background: none; border: none; padding: 8px 16px; font-size: 16px; cursor: pointer; border-bottom: 3px solid transparent; color: #666; font-weight: 500;">
+                        <i class="fas fa-eye"></i> Reviewer Documents
+                    </button>
+                </div>
             </div>
-            <div class="card-content">
-                <div id="adminDocumentsTable"></div>
+
+            <!-- Tab 1: Author Documents -->
+            <div id="authorsDocumentTab" style="display: block;">
+                <div style="margin-top: 20px;">
+                    <div class="card-header">
+                        <h3><i class="fas fa-upload"></i> Upload Documents</h3>
+                    </div>
+                    <div class="card-content">
+                        <form id="authorDocumentUploadForm" style="display: flex; flex-direction: column; gap: 12px;">
+                            <div style="display: flex; gap: 12px; align-items: flex-start;">
+                                <div style="flex: 1;">
+                                    <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #333;">Select File:</label>
+                                    <input type="file" id="authorDocumentFile" name="documentFile" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" required style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #333;">&nbsp;</label>
+                                    <button type="submit" class="btn-primary">
+                                        <i class="fas fa-cloud-upload-alt"></i> Upload
+                                    </button>
+                                </div>
+                            </div>
+                            <small style="color:#666;">Allowed: PDF, Word, Excel, PowerPoint, TXT, CSV. Max: 25 MB. Documents will be visible to all authors.</small>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top: 20px;">
+                    <div class="card-header">
+                        <h3><i class="fas fa-table"></i> Uploaded Documents</h3>
+                        <button class="btn-primary" onclick="loadAuthorDocumentsTable()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="card-content">
+                        <div id="authorDocumentsTable"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 2: Reviewer Documents (Empty for now) -->
+            <div id="reviewersDocumentTab" style="display: none; padding: 40px 20px; text-align: center;">
+                <div style="color: #999;">
+                    <i class="fas fa-folder-open" style="font-size: 48px; margin-bottom: 16px; display: block;"></i>
+                    <p style="font-size: 16px; margin-bottom: 8px;">Reviewer Documents</p>
+                    <p style="color: #ccc; font-size: 14px;">This section is empty. Reviewer documents functionality will be added in future releases.</p>
+                </div>
             </div>
         </div>
     `;
 
-    const form = document.getElementById('adminDocumentUploadForm');
+    // Load documents
+    loadAuthorDocumentsTable();
+
+    const form = document.getElementById('authorDocumentUploadForm');
     if (form) {
-        form.addEventListener('submit', uploadAdminDocument);
+        form.addEventListener('submit', uploadAuthorDocument);
+    }
+}
+
+function switchDocumentTab(tabName) {
+    // Hide all tabs
+    document.getElementById('authorsDocumentTab').style.display = 'none';
+    document.getElementById('reviewersDocumentTab').style.display = 'none';
+
+    // Remove active class from all tab buttons
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    tabButtons.forEach(btn => {
+        btn.style.color = '#666';
+        btn.style.borderBottom = '3px solid transparent';
+    });
+
+    // Show selected tab and set active button
+    if (tabName === 'authors') {
+        document.getElementById('authorsDocumentTab').style.display = 'block';
+        event.target.style.color = '#2563eb';
+        event.target.style.borderBottom = '3px solid #2563eb';
+    } else if (tabName === 'reviewers') {
+        document.getElementById('reviewersDocumentTab').style.display = 'block';
+        event.target.style.color = '#2563eb';
+        event.target.style.borderBottom = '3px solid #2563eb';
+    }
+}
+
+async function uploadAuthorDocument(e) {
+    e.preventDefault();
+
+    const fileInput = document.getElementById('authorDocumentFile');
+
+    if (!fileInput.files || fileInput.files.length === 0) {
+        alert('Please select a file');
+        return;
     }
 
-    loadAdminDocuments();
+    const session = getSession();
+    const createdByAdminId = session && session.user ? session.user.id : null;
+    if (!createdByAdminId) {
+        alert('Admin session not found. Please log in again.');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('documentFile', fileInput.files[0]);
+    formData.append('createdByAdminId', String(createdByAdminId));
+
+    try {
+        const response = await fetch('/admin/documents', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await parseApiResponse(response);
+
+        if (response.ok && result.success) {
+            alert('Document uploaded successfully!');
+            document.getElementById('authorDocumentUploadForm').reset();
+            loadAuthorDocumentsTable();
+        } else {
+            alert('Error: ' + (result.message || 'Failed to upload document'));
+        }
+    } catch (error) {
+        console.error('Upload error:', error);
+        alert('Error uploading document: ' + error.message);
+    }
+}
+
+async function parseApiResponse(response) {
+    const rawText = await response.text();
+    if (!rawText) {
+        return {};
+    }
+
+    try {
+        return JSON.parse(rawText);
+    } catch (_err) {
+        throw new Error(`Unexpected server response (${response.status}). Please refresh and try again.`);
+    }
+}
+
+async function loadAuthorDocumentsTable() {
+    try {
+        const response = await fetch('/admin/documents');
+        const result = await parseApiResponse(response);
+
+        const container = document.getElementById('authorDocumentsTable');
+
+        if (!result.success || !result.documents || result.documents.length === 0) {
+            container.innerHTML = '<p style="color: #999; padding: 20px; text-align: center;">No documents uploaded yet</p>';
+            return;
+        }
+
+        const documents = result.documents;
+
+        let tableHTML = `
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">
+                    <tr>
+                        <th style="padding: 12px; text-align: left; font-weight: 600; color: #333;">Document</th>
+                        <th style="padding: 12px; text-align: left; font-weight: 600; color: #333;">File Size</th>
+                        <th style="padding: 12px; text-align: left; font-weight: 600; color: #333;">Uploaded Date</th>
+                        <th style="padding: 12px; text-align: left; font-weight: 600; color: #333;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        documents.forEach(doc => {
+            const uploadDate = new Date(doc.uploadedAt).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            const fileSizeKB = (doc.fileSize / 1024).toFixed(2);
+
+            tableHTML += `
+                <tr style="border-bottom: 1px solid #eee; hover-background: #f9f9f9;">
+                    <td style="padding: 12px; color: #333;">
+                        <a href="${doc.fileUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 500;">
+                            <i class="fas fa-download"></i> ${doc.fileName}
+                        </a>
+                    </td>
+                    <td style="padding: 12px; color: #666; font-size: 14px;">${fileSizeKB} KB</td>
+                    <td style="padding: 12px; color: #666; font-size: 14px;">${uploadDate}</td>
+                    <td style="padding: 12px;">
+                        <button onclick="deleteAuthorDocument(${doc.id})" class="btn-danger" style="padding: 6px 12px; font-size: 12px;">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+
+        tableHTML += `
+                </tbody>
+            </table>
+        `;
+
+        container.innerHTML = tableHTML;
+    } catch (error) {
+        console.error('Error loading documents:', error);
+        document.getElementById('authorDocumentsTable').innerHTML = '<p style="color: red; padding: 20px;">Error loading documents</p>';
+    }
+}
+
+async function deleteAuthorDocument(documentId) {
+    if (!confirm('Are you sure you want to delete this document?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/admin/documents/${documentId}`, {
+            method: 'DELETE'
+        });
+
+        const result = await parseApiResponse(response);
+
+        if (response.ok && result.success) {
+            alert('Document deleted successfully!');
+            loadAuthorDocumentsTable();
+        } else {
+            alert('Error: ' + (result.message || 'Failed to delete document'));
+        }
+    } catch (error) {
+        console.error('Delete error:', error);
+        alert('Error deleting document: ' + error.message);
+    }
 }
 
 function loadUsersContent() {
@@ -3988,11 +4253,19 @@ function sendSelectedInvitations() {
 
 async function markAuthorInvitationStatus(authorId, action) {
     try {
-        await fetch('/authors/invitation-response', {
+        const response = await fetch('/authors/invitation-response', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ authorId, action })
         });
+        const result = await response.json();
+        if (response.ok && result.success) {
+            // Flush both client-side caches so the refreshed modal shows the new status
+            invalidateAuthorsCache();
+            window._allAuthorsCache = null;
+        } else {
+            console.warn('markAuthorInvitationStatus: server returned failure:', result.message);
+        }
     } catch (error) {
         console.warn('Could not update invitation status:', error);
     }
@@ -6283,43 +6556,6 @@ function ensureAdminChatPopupStyles() {
             display: flex;
             flex-direction: column;
         }
-        .chat-popup-header {
-            background: linear-gradient(135deg, #1e40af 0%, #3966f1 50%, #2f55d4 100%);
-            color: #ffffff;
-            padding: 18px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            box-shadow: 0 2px 8px rgba(11, 35, 116, 0.2);
-        }
-        .chat-popup-title {
-            font-size: 20px;
-            font-weight: 700;
-            margin: 0;
-            letter-spacing: -0.3px;
-        }
-        .chat-popup-subtitle {
-            font-size: 13px;
-            opacity: 0.92;
-            margin-top: 4px;
-            font-weight: 500;
-        }
-        .chat-popup-close {
-            border: none;
-            background: rgba(255, 255, 255, 0.2);
-            color: #fff;
-            width: 38px;
-            height: 38px;
-            border-radius: 10px;
-            cursor: pointer;
-            font-size: 22px;
-            line-height: 1;
-            transition: all 0.2s ease;
-        }
-        .chat-popup-close:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: scale(1.05);
-        }
         .chat-popup-frame {
             width: 100%;
             height: 100%;
@@ -6333,7 +6569,7 @@ function ensureAdminChatPopupStyles() {
         }
         .chat-popup-loading {
             position: absolute;
-            inset: 60px 0 0 0;
+            inset: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -6377,13 +6613,6 @@ function openAdminChatPopup(chatUrl, subtitle) {
 
     overlay.innerHTML = `
         <div class="chat-popup-modal" role="dialog" aria-modal="true" aria-label="Author Chat">
-            <div class="chat-popup-header">
-                <div>
-                    <div class="chat-popup-title">Author Communication</div>
-                    <div class="chat-popup-subtitle">${subtitle || 'Live support channel'}</div>
-                </div>
-                <button class="chat-popup-close" type="button" onclick="closeAdminChatPopup()" aria-label="Close">&times;</button>
-            </div>
             <div style="position:relative; flex:1; min-height:0;">
                 <div class="chat-popup-loading" id="chatPopupLoading">
                     <div class="chat-popup-loading-spinner"></div>

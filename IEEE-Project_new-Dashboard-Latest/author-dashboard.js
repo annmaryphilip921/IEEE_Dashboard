@@ -27,6 +27,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Check for accepted papers and update timeline state
     checkAcceptedPapers(session.user.email);
+    
+    // Load documents uploaded for this author
+    loadAuthorDocuments();
 });
 
 function loadAuthorData(author) {
@@ -160,7 +163,7 @@ function updateTimeline(author) {
         if (!timelineElement) continue;
 
         let status = 'pending';
-        let displayDate = 'Pending';
+        let displayDate = config.checkInvitationStatus ? '' : 'Pending';
 
         if (config.checkInvitationStatus) {
             // Check invitation status for first item
@@ -261,6 +264,21 @@ function formatUploadDateTime(value) {
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return '-';
     return parsed.toLocaleString();
+}
+
+function getDisplayFirstDraftFileName(fileName, email, paperId) {
+    const rawName = String(fileName || '').trim();
+    if (!rawName) return '';
+
+    const safeEmail = String(email || '').trim();
+    const safePaperId = String(paperId || '').trim();
+    const storedPrefix = safeEmail && safePaperId ? `${safeEmail}_${safePaperId}_` : '';
+
+    if (storedPrefix && rawName.startsWith(storedPrefix)) {
+        return rawName.slice(storedPrefix.length) || rawName;
+    }
+
+    return rawName;
 }
 
 async function downloadLatestDraftForAuthor(paperId, email, fallbackFileName) {
@@ -409,49 +427,14 @@ function ensureAuthorChatPopupStyles() {
             background: #ffffff;
             box-shadow: 0 36px 96px rgba(11, 35, 116, 0.4), 0 12px 32px rgba(11, 35, 116, 0.2);
             border: 1px solid rgba(32, 62, 180, 0.3);
-            display: grid;
-            grid-template-rows: auto 1fr;
-        }
-        .chat-popup-header {
-            background: linear-gradient(135deg, #1e40af 0%, #3966f1 50%, #2f55d4 100%);
-            color: #ffffff;
-            padding: 18px 24px;
             display: flex;
-            align-items: center;
-            justify-content: space-between;
-            box-shadow: 0 2px 8px rgba(11, 35, 116, 0.2);
-        }
-        .chat-popup-title {
-            font-size: 20px;
-            font-weight: 700;
-            margin: 0;
-            letter-spacing: -0.3px;
-        }
-        .chat-popup-subtitle {
-            font-size: 13px;
-            opacity: 0.92;
-            margin-top: 4px;
-            font-weight: 500;
-        }
-        .chat-popup-close {
-            border: none;
-            background: rgba(255, 255, 255, 0.2);
-            color: #fff;
-            width: 38px;
-            height: 38px;
-            border-radius: 10px;
-            cursor: pointer;
-            font-size: 22px;
-            line-height: 1;
-            transition: all 0.2s ease;
-        }
-        .chat-popup-close:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: scale(1.05);
+            flex-direction: column;
         }
         .chat-popup-frame {
             width: 100%;
             height: 100%;
+            flex: 1;
+            min-height: 0;
             border: 0;
             background: #fff;
         }
@@ -474,13 +457,6 @@ function openAuthorChatPopup(chatUrl, paperId) {
 
     overlay.innerHTML = `
         <div class="chat-popup-modal" role="dialog" aria-modal="true" aria-label="Chat with Admin">
-            <div class="chat-popup-header">
-                <div>
-                    <div class="chat-popup-title">Chat with Admin</div>
-                    <div class="chat-popup-subtitle">Paper ID: ${paperId || '-'}</div>
-                </div>
-                <button class="chat-popup-close" type="button" onclick="closeAuthorChatPopup()" aria-label="Close">&times;</button>
-            </div>
             <iframe class="chat-popup-frame" src="${chatUrl}" title="Chat with Admin"></iframe>
         </div>
     `;
@@ -609,7 +585,7 @@ async function loadAcceptedPapersTable() {
     if (!container) return;
 
     try {
-        const res = await fetch(`/author/my-papers?email=${encodeURIComponent(email)}`);
+        const res = await fetch(`/author/my-papers?email=${encodeURIComponent(email)}&_=${Date.now()}`);
         const data = await res.json();
 
         if (!data.success || !data.papers) {
@@ -625,7 +601,11 @@ async function loadAcceptedPapersTable() {
 
         const rows = acceptedPapers.map((paper, i) => {
             const hasUploadedDraft = Boolean(paper.first_draft_submitted || paper.first_draft_submitted_at);
-            const latestFileName = paper.first_draft_file_name || '';
+            const latestFileName = getDisplayFirstDraftFileName(
+                paper.first_draft_file_name,
+                paper.email || email,
+                paper.paper_id
+            ) || '';
             const latestDraftHtml = hasUploadedDraft
                 ? `<button class="btn-chat-admin" onclick="downloadLatestDraftForAuthor('${paper.paper_id}', '${paper.email || email}', '${latestFileName || 'first-draft'}')">
                         <i class="fas fa-download"></i> ${latestFileName || 'Download Draft'}
@@ -721,7 +701,7 @@ async function fetchCompletedSubmissionSummary(authorId) {
     }
 
     try {
-        const response = await fetch(`/authors/${authorId}/submissions`);
+        const response = await fetch(`/authors/${authorId}/submissions?_=${Date.now()}`);
         const data = await response.json();
         const submissions = Array.isArray(data?.submissions) ? data.submissions : [];
 
@@ -737,15 +717,22 @@ async function fetchCompletedSubmissionSummary(authorId) {
 }
 
 function renderCompletedUploadCell(paper, fileInfo, kind) {
-    if (fileInfo && fileInfo.fileUrl) {
-        const safeName = fileInfo.fileName || (kind === 'pdf' ? 'PDF file' : 'Word file');
-        return `<a class="btn-chat-admin" href="${fileInfo.fileUrl}" target="_blank" rel="noopener noreferrer">
-                    <i class="fas fa-download"></i> ${safeName}
-                </a>`;
-    }
-
     const inputId = `${kind}-upload-${paper.id}`;
     const acceptTypes = kind === 'pdf' ? '.pdf' : '.doc,.docx';
+
+    if (fileInfo && fileInfo.fileUrl) {
+        const safeName = fileInfo.fileName || (kind === 'pdf' ? 'PDF file' : 'Word file');
+        return `<input type="file" id="${inputId}" accept="${acceptTypes}" style="display:none;" onchange="uploadCompletedPaperFile(${paper.id}, '${paper.paper_id}', this, '${kind}')">
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <a class="btn-chat-admin" href="${fileInfo.fileUrl}" target="_blank" rel="noopener noreferrer">
+                        <i class="fas fa-download"></i> ${safeName}
+                    </a>
+                    <button class="btn-upload" style="padding:10px 12px; min-width:auto;" title="Re-upload ${kind.toUpperCase()} file" onclick="document.getElementById('${inputId}').click()">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>`;
+    }
+
     const uploadLabel = kind === 'pdf' ? 'Upload PDF' : 'Upload Word';
 
     return `<input type="file" id="${inputId}" accept="${acceptTypes}" style="display:none;" onchange="uploadCompletedPaperFile(${paper.id}, '${paper.paper_id}', this, '${kind}')">
@@ -763,7 +750,7 @@ async function loadCompletedPapersTable() {
     if (!container) return;
 
     try {
-        const res = await fetch(`/author/my-papers?email=${encodeURIComponent(email)}`);
+        const res = await fetch(`/author/my-papers?email=${encodeURIComponent(email)}&_=${Date.now()}`);
         const data = await res.json();
 
         if (!data.success || !data.papers) {
@@ -867,6 +854,7 @@ async function uploadCompletedPaperFile(authorId, paperId, fileInput, kind) {
 
         fileInput.value = '';
         await loadCompletedPapersTable();
+        await loadAcceptedPapersTable();
         alert(`${kind.toUpperCase()} file uploaded successfully for paper ${paperId}.`);
     } catch (error) {
         console.error('uploadCompletedPaperFile error:', error);
@@ -921,6 +909,11 @@ async function uploadFirstDraft(paperId, fileInput) {
             btn.style.background = '#059669';
             btn.style.color = 'white';
         }
+
+        // Refresh both sections immediately so latest uploaded file/date is visible without page refresh.
+        await loadAcceptedPapersTable();
+        await loadCompletedPapersTable();
+
         setTimeout(() => {
             if (btn) {
                 btn.disabled = false;
@@ -945,10 +938,174 @@ async function uploadFirstDraft(paperId, fileInput) {
     }
 }
 
+async function loadAuthorDocuments() {
+    try {
+        const data = await fetchSharedDocuments();
+
+        const container = document.getElementById('documentsTableContainer');
+
+        if (!data.success || !data.documents || data.documents.length === 0) {
+            container.innerHTML = '<p style="color:#a0aec0; text-align:center; padding:20px;">No documents uploaded for you yet</p>';
+            return;
+        }
+
+        const documents = data.documents;
+
+        let tableHTML = `
+            <table class="accepted-papers-table">
+                <thead>
+                    <tr>
+                        <th>Document Name</th>
+                        <th>File Size</th>
+                        <th>Uploaded Date</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        documents.forEach(doc => {
+            const uploadDate = new Date(doc.uploadedAt).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            const fileSizeKB = (doc.fileSize / 1024).toFixed(2);
+
+            tableHTML += `
+                <tr>
+                    <td><i class="fas fa-file"></i> ${doc.fileName}</td>
+                    <td>${fileSizeKB} KB</td>
+                    <td>${uploadDate}</td>
+                    <td>
+                        <a href="${doc.fileUrl}" target="_blank" class="btn-primary" style="display: inline-block; padding: 6px 12px; text-decoration: none; font-size: 12px;">
+                            <i class="fas fa-download"></i> Download
+                        </a>
+                    </td>
+                </tr>
+            `;
+        });
+
+        tableHTML += `
+                </tbody>
+            </table>
+        `;
+
+        container.innerHTML = tableHTML;
+    } catch (error) {
+        console.error('Error loading documents:', error);
+        document.getElementById('documentsTableContainer').innerHTML = '<p style="color:red; padding:20px; text-align:center;">Error loading documents</p>';
+    }
+}
+
+const DOCUMENTS_CACHE_TTL_MS = 60000;
+let sharedDocumentsCache = {
+    fetchedAt: 0,
+    data: null
+};
+
+async function fetchSharedDocuments(forceRefresh = false) {
+    const now = Date.now();
+    if (!forceRefresh && sharedDocumentsCache.data && (now - sharedDocumentsCache.fetchedAt) < DOCUMENTS_CACHE_TTL_MS) {
+        return sharedDocumentsCache.data;
+    }
+
+    const response = await fetch('/documents/shared');
+    const data = await response.json();
+    sharedDocumentsCache = {
+        fetchedAt: now,
+        data
+    };
+
+    return data;
+}
+
 function logoutAuthor() {
     if (confirm('Are you sure you want to logout?')) {
         clearSession();
         window.location.href = 'index.html';
+    }
+}
+
+// Documents Modal Functions
+function openDocumentsModal() {
+    const modal = document.getElementById('documentsModal');
+    modal.classList.add('show');
+    loadDocumentsInModal();
+}
+
+function closeDocumentsModal() {
+    const modal = document.getElementById('documentsModal');
+    modal.classList.remove('show');
+}
+
+// Close modal when clicking outside the content
+window.addEventListener('click', function(event) {
+    const modal = document.getElementById('documentsModal');
+    if (event.target === modal) {
+        closeDocumentsModal();
+    }
+});
+
+async function loadDocumentsInModal() {
+    try {
+        const data = await fetchSharedDocuments();
+
+        const container = document.getElementById('documentsListContainer');
+
+        if (!data.success || !data.documents || data.documents.length === 0) {
+            container.innerHTML = `
+                <div class="documents-empty">
+                    <i class="fas fa-inbox"></i>
+                    <p>No documents uploaded for you yet</p>
+                </div>
+            `;
+            return;
+        }
+
+        const documents = data.documents;
+        let html = '<div class="documents-list">';
+
+        documents.forEach(doc => {
+            const uploadDate = new Date(doc.uploadedAt).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+
+            const fileSizeKB = (doc.fileSize / 1024).toFixed(2);
+
+            html += `
+                <div class="document-item">
+                    <div class="document-info">
+                        <div class="document-icon">
+                            <i class="fas fa-file-pdf"></i>
+                        </div>
+                        <div class="document-details">
+                            <div class="document-name">${doc.fileName}</div>
+                            <div class="document-meta">${fileSizeKB} KB • ${uploadDate}</div>
+                        </div>
+                    </div>
+                    <a href="${doc.fileUrl}" target="_blank" download class="document-download">
+                        <i class="fas fa-download"></i> Download
+                    </a>
+                </div>
+            `;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+    } catch (error) {
+        console.error('Error loading documents:', error);
+        document.getElementById('documentsListContainer').innerHTML = `
+            <div class="documents-empty">
+                <i class="fas fa-exclamation-circle"></i>
+                <p>Error loading documents</p>
+            </div>
+        `;
     }
 }
 

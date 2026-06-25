@@ -71,6 +71,33 @@ async function getS3SignedUrl(s3Key, expirySeconds = S3_SIGNED_URL_EXPIRY) {
     }
 }
 
+// Cache signed URLs briefly to avoid regenerating on every modal open.
+const signedUrlCache = new Map();
+
+async function getCachedDocumentUrl(storedName, filePath) {
+    if (typeof filePath === 'string' && filePath.startsWith('/uploads/')) {
+        return filePath;
+    }
+
+    if (!storedName) {
+        return '';
+    }
+
+    const now = Date.now();
+    const cached = signedUrlCache.get(storedName);
+    if (cached && cached.expiresAt > now + 30000) {
+        return cached.url;
+    }
+
+    const url = await getS3SignedUrl(storedName);
+    signedUrlCache.set(storedName, {
+        url,
+        expiresAt: now + (S3_SIGNED_URL_EXPIRY * 1000)
+    });
+
+    return url;
+}
+
 // Helper function to format dates in LOCAL timezone (NOT UTC) for API responses
 function formatLocalDate(dateValue) {
     if (!dateValue) return null;
@@ -99,6 +126,8 @@ app.use(express.static('.'));
 
 const uploadsBaseDir = path.join(__dirname, 'uploads', 'first-drafts');
 fs.mkdirSync(uploadsBaseDir, { recursive: true });
+const adminDocumentsBackupDir = path.join(__dirname, 'uploads', 'admin-documents');
+fs.mkdirSync(adminDocumentsBackupDir, { recursive: true });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Use memory storage for multer (files will be uploaded to S3)
@@ -2251,6 +2280,93 @@ app.get('/authors', async (req, res) => {
     }
 });
 
+// PUT /authors/:authorId/progress — persist a stage status update in PostgreSQL
+app.put('/authors/:authorId/progress', async (req, res) => {
+    const authorId = Number(req.params.authorId);
+    const { stage, status, notes } = req.body || {};
+
+    if (!Number.isInteger(authorId) || authorId <= 0) {
+        return res.status(400).json({ success: false, message: 'Invalid authorId.' });
+    }
+
+    if (!stage || !AUTHOR_PROGRESS_STAGES.includes(stage)) {
+        return res.status(400).json({ success: false, message: 'Invalid stage.' });
+    }
+
+    const allowedStatuses = new Set(['pending', 'in-progress', 'completed', 'skipped']);
+    if (!status || !allowedStatuses.has(status)) {
+        return res.status(400).json({ success: false, message: 'Invalid status.' });
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const authorExists = await client.query('SELECT id FROM authors WHERE id = $1', [authorId]);
+        if (authorExists.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: 'Author not found.' });
+        }
+
+        const normalizedNotes = notes == null ? '' : String(notes);
+
+        const upsertResult = await client.query(
+            `INSERT INTO author_progress (author_id, stage, status, completed_at, notes, updated_at)
+             VALUES (
+                $1,
+                $2,
+                $3,
+                CASE WHEN $3 = 'completed' THEN NOW() ELSE NULL END,
+                $4,
+                NOW()
+             )
+             ON CONFLICT (author_id, stage)
+             DO UPDATE SET
+                status = EXCLUDED.status,
+                completed_at = CASE
+                    WHEN EXCLUDED.status = 'completed' THEN COALESCE(author_progress.completed_at, NOW())
+                    ELSE NULL
+                END,
+                notes = EXCLUDED.notes,
+                updated_at = NOW()
+             RETURNING author_id, stage, status, completed_at, notes`,
+            [authorId, stage, status, normalizedNotes]
+        );
+
+        // Keep the denormalized current_stage in authors aligned when a stage is completed.
+        if (status === 'completed') {
+            await client.query(
+                `UPDATE authors
+                 SET current_stage = $2,
+                     updated_at = NOW()
+                 WHERE id = $1`,
+                [authorId, stage]
+            );
+        }
+
+        await client.query('COMMIT');
+        clearAuthorsCache();
+
+        const row = upsertResult.rows[0];
+        return res.json({
+            success: true,
+            progress: {
+                authorId: row.author_id,
+                stage: row.stage,
+                status: row.status,
+                completedAt: row.completed_at,
+                notes: row.notes || ''
+            }
+        });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('PUT /authors/:authorId/progress error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to update author progress.' });
+    } finally {
+        client.release();
+    }
+});
+
 // Clear authors cache on write operations
 const clearAuthorsCache = () => {
     authorsCache = null;
@@ -2530,7 +2646,7 @@ app.post('/author/upload-first-draft', uploadDraft.single('file'), async (req, r
              WHERE LOWER(email) = LOWER($7)
                AND LOWER(paper_id) = LOWER($8)
              RETURNING id, paper_id, email, first_draft_submitted_at`,
-            [s3Url, storedName, s3Key, localPath, req.file.size, req.file.mimetype, email, paperId]
+            [s3Url, originalName, s3Key, localPath, req.file.size, req.file.mimetype, email, paperId]
         );
 
         if (dbResult.rows.length === 0) {
@@ -2648,6 +2764,7 @@ app.post('/authors/invitation-response', async (req, res) => {
         }
 
         const row = result.rows[0];
+        clearAuthorsCache();
         return res.json({
             success: true,
             author: {
@@ -2687,6 +2804,53 @@ app.post('/authors/:authorId/submissions/first-draft', uploadDraft.single('draft
         if (authorExists.rowCount === 0) {
             await client.query('ROLLBACK');
             return res.status(404).json({ success: false, message: 'Author not found.' });
+        }
+
+        if (isFinalPaper) {
+            const fileName = String(req.file.originalname || '').toLowerCase();
+            const mimeType = String(req.file.mimetype || '').toLowerCase();
+            const isPdfKind = fileName.endsWith('.pdf') || mimeType.includes('application/pdf');
+            const isWordKind = fileName.endsWith('.doc') || fileName.endsWith('.docx') || mimeType.includes('application/msword') || mimeType.includes('officedocument.wordprocessingml.document');
+
+            if (isPdfKind || isWordKind) {
+                const pdfPattern = 'application/pdf%';
+                const msWordPattern = 'application/msword%';
+                const docxPattern = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document%';
+
+                const existingFinalRows = await client.query(
+                    `SELECT id, stored_name
+                     FROM paper_submissions
+                     WHERE author_id = $1
+                       AND comments ILIKE 'Final paper%'
+                       AND (
+                           ( $2::boolean = true AND mime_type ILIKE $3 )
+                           OR
+                           ( $4::boolean = true AND (mime_type ILIKE $5 OR mime_type ILIKE $6))
+                       )`,
+                    [authorId, isPdfKind, pdfPattern, isWordKind, msWordPattern, docxPattern]
+                );
+
+                for (const existing of existingFinalRows.rows) {
+                    if (existing.stored_name) {
+                        try {
+                            await s3Client.send(new DeleteObjectCommand({
+                                Bucket: S3_BUCKET,
+                                Key: existing.stored_name
+                            }));
+                        } catch (s3DeleteErr) {
+                            console.warn('Failed deleting old final-paper file from S3:', s3DeleteErr.message);
+                        }
+                    }
+                }
+
+                if (existingFinalRows.rowCount > 0) {
+                    await client.query(
+                        `DELETE FROM paper_submissions
+                         WHERE id = ANY($1::int[])`,
+                        [existingFinalRows.rows.map((row) => Number(row.id))]
+                    );
+                }
+            }
         }
 
         // Upload to S3
@@ -3609,8 +3773,23 @@ app.post('/admin/documents', uploadAdminDocument.single('documentFile'), async (
             });
         }
 
-        const s3Upload = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'admin-documents');
-        const fileUrl = await getS3SignedUrl(s3Upload.key);
+        // Always keep a local backup copy for redundancy.
+        const safeFileName = `${Date.now()}_${(req.file.originalname || 'document').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const localBackupPath = path.join(adminDocumentsBackupDir, safeFileName);
+        fs.writeFileSync(localBackupPath, req.file.buffer);
+
+        let storedName = safeFileName;
+        let filePath = `/uploads/admin-documents/${safeFileName}`;
+        let fileUrl = filePath;
+
+        try {
+            const s3Upload = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'admin-documents');
+            storedName = s3Upload.key;
+            filePath = s3Upload.location;
+            fileUrl = await getS3SignedUrl(s3Upload.key);
+        } catch (s3Err) {
+            console.warn('S3 upload failed for admin document, local backup will be used:', s3Err.message);
+        }
 
         const insertResult = await client.query(
             `INSERT INTO admin_documents
@@ -3621,8 +3800,8 @@ app.post('/admin/documents', uploadAdminDocument.single('documentFile'), async (
                        malware_scan_status, malware_scan_engine`,
             [
                 req.file.originalname,
-                s3Upload.key,
-                s3Upload.location,
+                storedName,
+                filePath,
                 req.file.mimetype,
                 req.file.size,
                 createdByAdminId,
@@ -3664,6 +3843,7 @@ app.get('/admin/documents', async (_req, res) => {
             `SELECT d.id,
                     d.original_file_name,
                     d.stored_name,
+                    d.file_path,
                     d.mime_type,
                     d.file_size,
                     d.uploaded_at,
@@ -3678,9 +3858,9 @@ app.get('/admin/documents', async (_req, res) => {
         const documents = await Promise.all(result.rows.map(async (row) => {
             let fileUrl = '';
             try {
-                fileUrl = await getS3SignedUrl(row.stored_name);
+                fileUrl = await getCachedDocumentUrl(row.stored_name, row.file_path);
             } catch (_err) {
-                fileUrl = '';
+                fileUrl = (typeof row.file_path === 'string' && row.file_path.startsWith('/uploads/')) ? row.file_path : '';
             }
 
             return {
@@ -3715,7 +3895,7 @@ app.delete('/admin/documents/:id', async (req, res) => {
         const result = await pool.query(
             `DELETE FROM admin_documents
              WHERE id = $1
-             RETURNING id, stored_name`,
+             RETURNING id, stored_name, file_path`,
             [documentId]
         );
 
@@ -3724,7 +3904,8 @@ app.delete('/admin/documents/:id', async (req, res) => {
         }
 
         const storedName = result.rows[0].stored_name;
-        if (storedName) {
+        const filePath = result.rows[0].file_path;
+        if (storedName && !(typeof filePath === 'string' && filePath.startsWith('/uploads/'))) {
             try {
                 await s3Client.send(new DeleteObjectCommand({
                     Bucket: S3_BUCKET,
@@ -3733,6 +3914,22 @@ app.delete('/admin/documents/:id', async (req, res) => {
             } catch (s3Error) {
                 console.warn('S3 delete failed for admin document:', s3Error.message);
             }
+        }
+
+        // Also try deleting local backup copy if present.
+        try {
+            let localPath = '';
+            if (typeof filePath === 'string' && filePath.startsWith('/uploads/admin-documents/')) {
+                localPath = path.join(__dirname, filePath.replace(/^\//, ''));
+            } else {
+                localPath = path.join(adminDocumentsBackupDir, path.basename(String(storedName || '')));
+            }
+
+            if (localPath && fs.existsSync(localPath)) {
+                fs.unlinkSync(localPath);
+            }
+        } catch (localDeleteErr) {
+            console.warn('Local backup delete failed for admin document:', localDeleteErr.message);
         }
 
         return res.json({ success: true, deletedId: documentId });
@@ -3749,6 +3946,7 @@ app.get('/documents/shared', async (_req, res) => {
             `SELECT d.id,
                     d.original_file_name,
                     d.stored_name,
+                    d.file_path,
                     d.mime_type,
                     d.file_size,
                     d.uploaded_at,
@@ -3762,9 +3960,9 @@ app.get('/documents/shared', async (_req, res) => {
         const documents = await Promise.all(result.rows.map(async (row) => {
             let fileUrl = '';
             try {
-                fileUrl = await getS3SignedUrl(row.stored_name);
+                fileUrl = await getCachedDocumentUrl(row.stored_name, row.file_path);
             } catch (_err) {
-                fileUrl = '';
+                fileUrl = (typeof row.file_path === 'string' && row.file_path.startsWith('/uploads/')) ? row.file_path : '';
             }
 
             return {
@@ -3784,6 +3982,252 @@ app.get('/documents/shared', async (_req, res) => {
     } catch (err) {
         console.error('GET /documents/shared error:', err.message);
         return res.status(500).json({ success: false, message: 'Failed to load shared documents.' });
+    }
+});
+
+// ============================================================
+// AUTHOR DOCUMENTS ENDPOINTS (Admin-uploaded documents for authors)
+// ============================================================
+
+// Upload document for specific author
+app.post('/admin/documents/author', uploadAdminDocument.single('documentFile'), async (req, res) => {
+    const createdByAdminId = Number(req.body.createdByAdminId);
+
+    if (!req.file) {
+        return res.status(400).json({ success: false, message: 'Document file is required.' });
+    }
+
+    if (!Number.isInteger(createdByAdminId) || createdByAdminId <= 0) {
+        return res.status(400).json({ success: false, message: 'Valid admin session is required.' });
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // Verify admin exists
+        const adminExists = await client.query('SELECT id FROM admins WHERE id = $1', [createdByAdminId]);
+        if (adminExists.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: 'Admin account not found.' });
+        }
+
+        // Perform malware scan
+        const scanResult = MALWARE_SCAN_REQUIRED
+            ? await scanBufferForMalware(req.file.buffer, req.file.originalname)
+            : {
+                scannerAvailable: false,
+                clean: true,
+                status: 'unavailable',
+                engine: null,
+                reason: 'Malware scanning temporarily disabled by configuration'
+            };
+
+        if (!scanResult.scannerAvailable && MALWARE_SCAN_REQUIRED) {
+            await client.query('ROLLBACK');
+            return res.status(503).json({
+                success: false,
+                message: `Malware scanner is not available (${scanResult.reason || 'unknown reason'}). Document upload is blocked by security policy.`
+            });
+        }
+
+        if (scanResult.status === 'error' && MALWARE_SCAN_REQUIRED) {
+            await client.query('ROLLBACK');
+            return res.status(500).json({
+                success: false,
+                message: `Malware scan failed: ${scanResult.reason || 'Unknown error'}`
+            });
+        }
+
+        if (!scanResult.clean && scanResult.status === 'infected') {
+            await client.query('ROLLBACK');
+            return res.status(422).json({
+                success: false,
+                message: 'Upload blocked. Malware signature detected in file.',
+                details: scanResult.signature || null
+            });
+        }
+
+        // Upload to S3
+        const s3Upload = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'author-documents');
+        const fileUrl = await getS3SignedUrl(s3Upload.key);
+
+        // Insert into author_documents table with author_id = NULL for shared documents
+        const insertResult = await client.query(
+            `INSERT INTO author_documents
+                (author_id, original_file_name, stored_name, file_path, mime_type, file_size, 
+                 uploaded_by_admin_id, malware_scan_status, malware_scan_engine, malware_signature)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+             RETURNING id, original_file_name, stored_name, mime_type, file_size, uploaded_at`,
+            [
+                null, // NULL author_id means shared with all authors
+                req.file.originalname,
+                s3Upload.key,
+                s3Upload.location,
+                req.file.mimetype,
+                req.file.size,
+                createdByAdminId,
+                scanResult.status || 'clean',
+                scanResult.engine || null,
+                scanResult.signature || scanResult.reason || null
+            ]
+        );
+
+        await client.query('COMMIT');
+        const row = insertResult.rows[0];
+        return res.json({
+            success: true,
+            document: {
+                id: row.id,
+                fileName: row.original_file_name,
+                storedName: row.stored_name,
+                fileType: row.mime_type,
+                fileSize: Number(row.file_size || 0),
+                uploadedAt: row.uploaded_at,
+                fileUrl
+            }
+        });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('POST /admin/documents/author error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to upload document.' });
+    } finally {
+        client.release();
+    }
+});
+
+// Get all shared author documents for admin view
+app.get('/admin/documents/author', async (_req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT d.id,
+                    d.original_file_name,
+                    d.stored_name,
+                    d.mime_type,
+                    d.file_size,
+                    d.uploaded_at,
+                    d.malware_scan_status,
+                    d.malware_scan_engine,
+                    ad.full_name AS uploaded_by
+             FROM author_documents d
+             LEFT JOIN admins ad ON ad.id = d.uploaded_by_admin_id
+             WHERE d.author_id IS NULL
+             ORDER BY d.uploaded_at DESC`
+        );
+
+        const documents = await Promise.all(result.rows.map(async (row) => {
+            let fileUrl = '';
+            try {
+                fileUrl = await getS3SignedUrl(row.stored_name);
+            } catch (_err) {
+                fileUrl = '';
+            }
+
+            return {
+                id: row.id,
+                fileName: row.original_file_name,
+                storedName: row.stored_name,
+                fileType: row.mime_type,
+                fileSize: Number(row.file_size || 0),
+                uploadedAt: row.uploaded_at,
+                uploadedBy: row.uploaded_by || 'Unknown',
+                malwareScanStatus: row.malware_scan_status,
+                malwareScanEngine: row.malware_scan_engine,
+                fileUrl
+            };
+        }));
+
+        return res.json({ success: true, documents });
+    } catch (err) {
+        console.error('GET /admin/documents/author error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to load documents.' });
+    }
+});
+
+// Delete document for author
+app.delete('/admin/documents/author/:id', async (req, res) => {
+    const documentId = Number(req.params.id);
+    if (!Number.isInteger(documentId) || documentId <= 0) {
+        return res.status(400).json({ success: false, message: 'Invalid document id.' });
+    }
+
+    try {
+        const result = await pool.query(
+            `DELETE FROM author_documents
+             WHERE id = $1
+             RETURNING id, stored_name`,
+            [documentId]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: 'Document not found.' });
+        }
+
+        const storedName = result.rows[0].stored_name;
+        if (storedName) {
+            try {
+                await s3Client.send(new DeleteObjectCommand({
+                    Bucket: S3_BUCKET,
+                    Key: storedName
+                }));
+            } catch (s3Error) {
+                console.warn('S3 delete failed for author document:', s3Error.message);
+            }
+        }
+
+        return res.json({ success: true, deletedId: documentId });
+    } catch (err) {
+        console.error('DELETE /admin/documents/author/:id error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to delete document.' });
+    }
+});
+
+// Get documents uploaded for current author
+app.get('/author/documents', async (req, res) => {
+    const session = req.session;
+    if (!session || session.userType !== 'author') {
+        return res.status(401).json({ success: false, message: 'Author session required.' });
+    }
+
+    try {
+        const result = await pool.query(
+            `SELECT d.id,
+                    d.original_file_name,
+                    d.stored_name,
+                    d.mime_type,
+                    d.file_size,
+                    d.uploaded_at,
+                    ad.full_name AS uploaded_by
+             FROM author_documents d
+             LEFT JOIN admins ad ON ad.id = d.uploaded_by_admin_id
+             WHERE d.author_id IS NULL
+             ORDER BY d.uploaded_at DESC`
+        );
+
+        const documents = await Promise.all(result.rows.map(async (row) => {
+            let fileUrl = '';
+            try {
+                fileUrl = await getS3SignedUrl(row.stored_name);
+            } catch (_err) {
+                fileUrl = '';
+            }
+
+            return {
+                id: row.id,
+                fileName: row.original_file_name,
+                storedName: row.stored_name,
+                fileType: row.mime_type,
+                fileSize: Number(row.file_size || 0),
+                uploadedAt: row.uploaded_at,
+                uploadedBy: row.uploaded_by || 'Admin',
+                fileUrl
+            };
+        }));
+
+        return res.json({ success: true, documents });
+    } catch (err) {
+        console.error('GET /author/documents error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to load your documents.' });
     }
 });
 

@@ -1,0 +1,13 @@
+DB_HOST=ieee-dashboard.c832yu0su9pu.us-east-1.rds.amazonaws.com
+DB_PORT=5432
+DB_NAME=ieee_dashboard
+DB_USER=ieee_admin
+DB_PASSWORD=jixilann2026
+DB_SSL=true
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=AKIAYHWUS3GWZM2CFQS6
+AWS_SECRET_ACCESS_KEY=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
+S3_BUCKET_NAME=ieee-dashboard-drafts
+SESSION_SECRET=ieee_dashboard_secret_2026_pcic_conference_key
+GMAIL_USER=adminieeepcic@gmail.com
+GMAIL_PASS=grir hddt dnee cywv

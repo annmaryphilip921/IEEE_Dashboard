@@ -66,7 +66,7 @@ function getAdminSession() {
 function navigateToModule(target) {
     switch (target) {
         case 'authors':
-            window.location.href = 'dashboard.html#users';
+            window.location.href = 'dashboard.html#dashboard';
             break;
         case 'reviewers':
             window.location.href = 'dashboard.html#projects';

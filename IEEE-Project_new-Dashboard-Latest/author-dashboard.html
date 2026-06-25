@@ -228,6 +228,178 @@
             display: none;
         }
 
+        .header-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .btn-documents {
+            background: linear-gradient(135deg, #059669, #10b981);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-documents:hover {
+            background: linear-gradient(135deg, #047857, #059669);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
+        }
+
+        /* Documents Modal */
+        .documents-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.3s ease;
+        }
+
+        .documents-modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .documents-modal-content {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            max-width: 700px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s ease;
+        }
+
+        .documents-modal-header {
+            padding: 24px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .documents-modal-header h2 {
+            margin: 0;
+            font-size: 20px;
+            color: #1a202c;
+        }
+
+        .documents-modal-close {
+            background: none;
+            border: none;
+            font-size: 28px;
+            cursor: pointer;
+            color: #64748b;
+            transition: color 0.2s;
+        }
+
+        .documents-modal-close:hover {
+            color: #1a202c;
+        }
+
+        .documents-modal-body {
+            padding: 24px;
+        }
+
+        .documents-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .document-item {
+            padding: 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background-color: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.2s;
+        }
+
+        .document-item:hover {
+            background-color: #f1f5f9;
+            border-color: #cbd5e1;
+        }
+
+        .document-info {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .document-icon {
+            font-size: 24px;
+            color: #059669;
+        }
+
+        .document-details {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .document-name {
+            font-weight: 600;
+            color: #1a202c;
+            font-size: 14px;
+        }
+
+        .document-meta {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .document-download {
+            background: linear-gradient(135deg, #059669, #10b981);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .document-download:hover {
+            background: linear-gradient(135deg, #047857, #059669);
+            transform: translateY(-1px);
+        }
+
+        .documents-empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: #94a3b8;
+        }
+
+        .documents-empty i {
+            font-size: 48px;
+            display: block;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+
         /* My Papers Section */
         .papers-section {
             background: white;
@@ -512,6 +684,26 @@
             }
         }
 
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
         .timeline-item.has-accepted-papers {
             cursor: pointer;
         }
@@ -598,9 +790,29 @@
                     <h1>Welcome, <span id="authorName">Author</span>!</h1>
                     <p>Track your paper submission progress</p>
                 </div>
-                <button class="btn-logout" onclick="logoutAuthor()">
-                    <i class="fas fa-sign-out-alt"></i> Logout
-                </button>
+                <div class="header-actions">
+                    <button class="btn-documents" onclick="openDocumentsModal()">
+                        <i class="fas fa-file-download"></i> Documents
+                    </button>
+                    <button class="btn-logout" onclick="logoutAuthor()">
+                        <i class="fas fa-sign-out-alt"></i> Logout
+                    </button>
+                </div>
+            </div>
+
+            <!-- Documents Modal -->
+            <div id="documentsModal" class="documents-modal">
+                <div class="documents-modal-content">
+                    <div class="documents-modal-header">
+                        <h2><i class="fas fa-file-pdf"></i> Your Documents</h2>
+                        <button class="documents-modal-close" onclick="closeDocumentsModal()">×</button>
+                    </div>
+                    <div class="documents-modal-body">
+                        <div id="documentsListContainer" class="documents-list">
+                            <p style="text-align: center; color: #94a3b8;"><i class="fas fa-spinner fa-spin"></i> Loading documents...</p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Timeline Section -->
@@ -615,7 +827,7 @@
                             <i class="fas fa-envelope-open"></i>
                         </div>
                         <div class="timeline-title">Invitation Acceptance</div>
-                        <div class="timeline-date" id="date-invitation">Pending</div>
+                        <div class="timeline-date" id="date-invitation"></div>
                         <div class="timeline-connector"></div>
                     </div>
 
@@ -674,6 +886,15 @@
                 <h3><i class="fas fa-file-alt"></i> My Papers</h3>
                 <div id="papersTableContainer">
                     <p style="color:#a0aec0; text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading papers...</p>
+                </div>
+            </div>
+
+            <!-- Documents Section -->
+            <div class="accepted-papers-section" id="documentsSection">
+                <h3><i class="fas fa-file-pdf"></i> Uploaded Documents</h3>
+                <p style="color: #64748b; margin-bottom: 20px; font-size: 14px;">Documents uploaded by the conference administrators for your reference.</p>
+                <div id="documentsTableContainer">
+                    <p style="color:#a0aec0; text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading documents...</p>
                 </div>
             </div>
 
