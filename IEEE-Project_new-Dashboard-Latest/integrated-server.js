@@ -127,6 +127,27 @@ function resolveAdminDocumentLocalPath(storedName, filePath, originalFileName) {
         }
     }
 
+    // Legacy fallback: find by sanitized original filename suffix because S3 key timestamp
+    // and local backup timestamp can differ for older uploads.
+    if (originalFileName) {
+        try {
+            const sanitizedOriginal = String(originalFileName).replace(/[^a-zA-Z0-9._-]/g, '_');
+            const files = fs.readdirSync(adminDocumentsBackupDir)
+                .filter((name) => name.endsWith(`_${sanitizedOriginal}`))
+                .sort((a, b) => {
+                    const aTs = Number((a.match(/^(\d+)_/) || [0, 0])[1]) || 0;
+                    const bTs = Number((b.match(/^(\d+)_/) || [0, 0])[1]) || 0;
+                    return bTs - aTs;
+                });
+
+            if (files.length > 0) {
+                return path.join(adminDocumentsBackupDir, files[0]);
+            }
+        } catch (_err) {
+            // ignore and return empty path below
+        }
+    }
+
     return '';
 }
 
@@ -3839,13 +3860,13 @@ app.post('/admin/documents', uploadAdminDocument.single('documentFile'), async (
         fs.writeFileSync(localBackupPath, req.file.buffer);
 
         let storedName = safeFileName;
-        let filePath = `/uploads/admin-documents/${safeFileName}`;
+        const localPublicPath = `/uploads/admin-documents/${safeFileName}`;
+        let filePath = localPublicPath;
         let fileUrl = filePath;
 
         try {
             const s3Upload = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'admin-documents');
             storedName = s3Upload.key;
-            filePath = s3Upload.location;
             fileUrl = await getS3SignedUrl(s3Upload.key);
         } catch (s3Err) {
             console.warn('S3 upload failed for admin document, local backup will be used:', s3Err.message);
@@ -3983,7 +4004,8 @@ app.delete('/admin/documents/:id', async (req, res) => {
 
         const storedName = result.rows[0].stored_name;
         const filePath = result.rows[0].file_path;
-        if (storedName && !(typeof filePath === 'string' && filePath.startsWith('/uploads/'))) {
+        // Always attempt S3 delete for S3-style keys, regardless of local backup path.
+        if (storedName && String(storedName).includes('/')) {
             try {
                 await s3Client.send(new DeleteObjectCommand({
                     Bucket: S3_BUCKET,
