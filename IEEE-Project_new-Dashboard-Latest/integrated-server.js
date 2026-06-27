@@ -98,6 +98,66 @@ async function getCachedDocumentUrl(storedName, filePath) {
     return url;
 }
 
+function resolveAdminDocumentLocalPath(storedName, filePath, originalFileName) {
+    const candidates = [];
+
+    if (typeof filePath === 'string' && filePath.startsWith('/uploads/')) {
+        candidates.push(path.join(__dirname, filePath.replace(/^\//, '')));
+    }
+
+    const storedBaseName = path.basename(String(storedName || ''));
+    if (storedBaseName) {
+        candidates.push(path.join(adminDocumentsBackupDir, storedBaseName));
+
+        const sanitizedStoredBaseName = storedBaseName.replace(/[^a-zA-Z0-9._-]/g, '_');
+        if (sanitizedStoredBaseName !== storedBaseName) {
+            candidates.push(path.join(adminDocumentsBackupDir, sanitizedStoredBaseName));
+        }
+
+        const tsMatch = storedBaseName.match(/^(\d+)_/);
+        if (tsMatch && originalFileName) {
+            const synthesizedName = `${tsMatch[1]}_${String(originalFileName).replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+            candidates.push(path.join(adminDocumentsBackupDir, synthesizedName));
+        }
+    }
+
+    for (const candidatePath of candidates) {
+        if (candidatePath && fs.existsSync(candidatePath)) {
+            return candidatePath;
+        }
+    }
+
+    return '';
+}
+
+async function sendAdminDocumentContent(row, res) {
+    const localPath = resolveAdminDocumentLocalPath(row.stored_name, row.file_path, row.original_file_name);
+    if (localPath) {
+        return res.download(localPath, row.original_file_name || path.basename(localPath));
+    }
+
+    if (row.stored_name) {
+        try {
+            const objectResult = await s3Client.send(new GetObjectCommand({
+                Bucket: S3_BUCKET,
+                Key: row.stored_name
+            }));
+
+            res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
+            res.setHeader('Content-Disposition', `attachment; filename="${String(row.original_file_name || 'document').replace(/"/g, '')}"`);
+
+            if (objectResult.Body && typeof objectResult.Body.pipe === 'function') {
+                objectResult.Body.pipe(res);
+                return;
+            }
+        } catch (err) {
+            console.error('Failed to stream admin document from S3:', err.message);
+        }
+    }
+
+    return res.status(404).json({ success: false, message: 'Document file is not accessible from storage.' });
+}
+
 // Helper function to format dates in LOCAL timezone (NOT UTC) for API responses
 function formatLocalDate(dateValue) {
     if (!dateValue) return null;
@@ -3855,15 +3915,7 @@ app.get('/admin/documents', async (_req, res) => {
              ORDER BY d.uploaded_at DESC`
         );
 
-        const documents = await Promise.all(result.rows.map(async (row) => {
-            let fileUrl = '';
-            try {
-                fileUrl = await getCachedDocumentUrl(row.stored_name, row.file_path);
-            } catch (_err) {
-                fileUrl = (typeof row.file_path === 'string' && row.file_path.startsWith('/uploads/')) ? row.file_path : '';
-            }
-
-            return {
+        const documents = result.rows.map((row) => ({
                 id: row.id,
                 fileName: row.original_file_name,
                 storedName: row.stored_name,
@@ -3873,14 +3925,40 @@ app.get('/admin/documents', async (_req, res) => {
                 uploadedBy: row.uploaded_by || 'Unknown',
                 malwareScanStatus: row.malware_scan_status,
                 malwareScanEngine: row.malware_scan_engine,
-                fileUrl
-            };
-        }));
+                fileUrl: `/admin/documents/${row.id}/download`
+            }
+        ));
 
         return res.json({ success: true, documents });
     } catch (err) {
         console.error('GET /admin/documents error:', err.message);
         return res.status(500).json({ success: false, message: 'Failed to load admin documents.' });
+    }
+});
+
+// Download one uploaded admin document (local backup first, then S3 stream)
+app.get('/admin/documents/:id/download', async (req, res) => {
+    const documentId = Number(req.params.id);
+    if (!Number.isInteger(documentId) || documentId <= 0) {
+        return res.status(400).json({ success: false, message: 'Invalid document id.' });
+    }
+
+    try {
+        const result = await pool.query(
+            `SELECT id, original_file_name, stored_name, file_path, mime_type
+             FROM admin_documents
+             WHERE id = $1`,
+            [documentId]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: 'Document not found.' });
+        }
+
+        return sendAdminDocumentContent(result.rows[0], res);
+    } catch (err) {
+        console.error('GET /admin/documents/:id/download error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to download document.' });
     }
 });
 
@@ -3957,15 +4035,7 @@ app.get('/documents/shared', async (_req, res) => {
              ORDER BY d.uploaded_at DESC`
         );
 
-        const documents = await Promise.all(result.rows.map(async (row) => {
-            let fileUrl = '';
-            try {
-                fileUrl = await getCachedDocumentUrl(row.stored_name, row.file_path);
-            } catch (_err) {
-                fileUrl = (typeof row.file_path === 'string' && row.file_path.startsWith('/uploads/')) ? row.file_path : '';
-            }
-
-            return {
+        const documents = result.rows.map((row) => ({
                 id: row.id,
                 fileName: row.original_file_name,
                 storedName: row.stored_name,
@@ -3974,14 +4044,40 @@ app.get('/documents/shared', async (_req, res) => {
                 uploadedAt: row.uploaded_at,
                 uploadedBy: row.uploaded_by || 'Admin',
                 malwareScanStatus: row.malware_scan_status,
-                fileUrl
-            };
-        }));
+                fileUrl: `/documents/shared/${row.id}/download`
+            }
+        ));
 
         return res.json({ success: true, documents });
     } catch (err) {
         console.error('GET /documents/shared error:', err.message);
         return res.status(500).json({ success: false, message: 'Failed to load shared documents.' });
+    }
+});
+
+// Download shared admin document for authors (local backup first, then S3 stream)
+app.get('/documents/shared/:id/download', async (req, res) => {
+    const documentId = Number(req.params.id);
+    if (!Number.isInteger(documentId) || documentId <= 0) {
+        return res.status(400).json({ success: false, message: 'Invalid document id.' });
+    }
+
+    try {
+        const result = await pool.query(
+            `SELECT id, original_file_name, stored_name, file_path, mime_type
+             FROM admin_documents
+             WHERE id = $1`,
+            [documentId]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: 'Document not found.' });
+        }
+
+        return sendAdminDocumentContent(result.rows[0], res);
+    } catch (err) {
+        console.error('GET /documents/shared/:id/download error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to download shared document.' });
     }
 });
 
