@@ -191,6 +191,11 @@ CREATE INDEX IF NOT EXISTS idx_email_logs_recipient  ON email_logs(recipient_ema
 CREATE INDEX IF NOT EXISTS idx_admin_stage_dates_stage ON admin_stage_dates(stage);
 CREATE INDEX IF NOT EXISTS idx_sessions_user         ON sessions(user_id, user_type);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires      ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_author  ON chat_sessions(author_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_admin_unread
+    ON chat_messages(session_id, sender_type, read_by_admin);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_author_unread
+    ON chat_messages(session_id, sender_type, read_by_author);
 
 -- ============================================================
 -- AUTO-UPDATE updated_at trigger

@@ -74,11 +74,7 @@ async function getS3SignedUrl(s3Key, expirySeconds = S3_SIGNED_URL_EXPIRY) {
 // Cache signed URLs briefly to avoid regenerating on every modal open.
 const signedUrlCache = new Map();
 
-async function getCachedDocumentUrl(storedName, filePath) {
-    if (typeof filePath === 'string' && filePath.startsWith('/uploads/')) {
-        return filePath;
-    }
-
+async function getCachedDocumentUrl(storedName, _filePath) {
     if (!storedName) {
         return '';
     }
@@ -98,65 +94,7 @@ async function getCachedDocumentUrl(storedName, filePath) {
     return url;
 }
 
-function resolveAdminDocumentLocalPath(storedName, filePath, originalFileName) {
-    const candidates = [];
-
-    if (typeof filePath === 'string' && filePath.startsWith('/uploads/')) {
-        candidates.push(path.join(__dirname, filePath.replace(/^\//, '')));
-    }
-
-    const storedBaseName = path.basename(String(storedName || ''));
-    if (storedBaseName) {
-        candidates.push(path.join(adminDocumentsBackupDir, storedBaseName));
-
-        const sanitizedStoredBaseName = storedBaseName.replace(/[^a-zA-Z0-9._-]/g, '_');
-        if (sanitizedStoredBaseName !== storedBaseName) {
-            candidates.push(path.join(adminDocumentsBackupDir, sanitizedStoredBaseName));
-        }
-
-        const tsMatch = storedBaseName.match(/^(\d+)_/);
-        if (tsMatch && originalFileName) {
-            const synthesizedName = `${tsMatch[1]}_${String(originalFileName).replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-            candidates.push(path.join(adminDocumentsBackupDir, synthesizedName));
-        }
-    }
-
-    for (const candidatePath of candidates) {
-        if (candidatePath && fs.existsSync(candidatePath)) {
-            return candidatePath;
-        }
-    }
-
-    // Legacy fallback: find by sanitized original filename suffix because S3 key timestamp
-    // and local backup timestamp can differ for older uploads.
-    if (originalFileName) {
-        try {
-            const sanitizedOriginal = String(originalFileName).replace(/[^a-zA-Z0-9._-]/g, '_');
-            const files = fs.readdirSync(adminDocumentsBackupDir)
-                .filter((name) => name.endsWith(`_${sanitizedOriginal}`))
-                .sort((a, b) => {
-                    const aTs = Number((a.match(/^(\d+)_/) || [0, 0])[1]) || 0;
-                    const bTs = Number((b.match(/^(\d+)_/) || [0, 0])[1]) || 0;
-                    return bTs - aTs;
-                });
-
-            if (files.length > 0) {
-                return path.join(adminDocumentsBackupDir, files[0]);
-            }
-        } catch (_err) {
-            // ignore and return empty path below
-        }
-    }
-
-    return '';
-}
-
 async function sendAdminDocumentContent(row, res) {
-    const localPath = resolveAdminDocumentLocalPath(row.stored_name, row.file_path, row.original_file_name);
-    if (localPath) {
-        return res.download(localPath, row.original_file_name || path.basename(localPath));
-    }
-
     if (row.stored_name) {
         try {
             const objectResult = await s3Client.send(new GetObjectCommand({
@@ -173,10 +111,16 @@ async function sendAdminDocumentContent(row, res) {
             }
         } catch (err) {
             console.error('Failed to stream admin document from S3:', err.message);
+            if (String(err && err.name).toLowerCase().includes('accessdenied') || String(err && err.message).toLowerCase().includes('access denied')) {
+                return res.status(503).json({
+                    success: false,
+                    message: 'S3 AccessDenied. The active AWS credentials are blocked from GetObject. Please rotate credentials / remove quarantine policy.'
+                });
+            }
         }
     }
 
-    return res.status(404).json({ success: false, message: 'Document file is not accessible from storage.' });
+    return res.status(404).json({ success: false, message: 'Document file is not accessible in S3 storage.' });
 }
 
 // Helper function to format dates in LOCAL timezone (NOT UTC) for API responses
@@ -207,8 +151,6 @@ app.use(express.static('.'));
 
 const uploadsBaseDir = path.join(__dirname, 'uploads', 'first-drafts');
 fs.mkdirSync(uploadsBaseDir, { recursive: true });
-const adminDocumentsBackupDir = path.join(__dirname, 'uploads', 'admin-documents');
-fs.mkdirSync(adminDocumentsBackupDir, { recursive: true });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Use memory storage for multer (files will be uploaded to S3)
@@ -492,6 +434,9 @@ async function ensureChatTables() {
     await pool.query('CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created ON chat_messages(session_id, created_at DESC)');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_chat_messages_unread_admin ON chat_messages(session_id) WHERE read_by_admin = FALSE AND sender_type IN (\'author\', \'system\')');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_chat_messages_unread_author ON chat_messages(session_id) WHERE read_by_author = FALSE AND sender_type = \'admin\'');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_chat_sessions_author ON chat_sessions(author_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_chat_messages_admin_unread ON chat_messages(session_id, sender_type, read_by_admin)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_chat_messages_author_unread ON chat_messages(session_id, sender_type, read_by_author)');
 }
 
 async function ensureAdminDocumentsTable() {
@@ -3568,16 +3513,86 @@ app.get('/chat/unread-count/author/:authorId', async (req, res) => {
     }
 });
 
-// Simple in-memory cache for chat unread counts (15 second TTL)
+// Simple in-memory cache for chat unread counts (5 minute TTL)
 const chatUnreadCache = new Map();
 const getCachedUnreadCount = (key) => {
     const cached = chatUnreadCache.get(key);
-    if (cached && Date.now() - cached.time < 15000) return cached.count;
+    if (cached && Date.now() - cached.time < 300000) return cached.count;
     return null;
 };
 const setCachedUnreadCount = (key, count) => {
     chatUnreadCache.set(key, { count, time: Date.now() });
 };
+
+const normalizePositiveIntegerIds = (ids) => {
+    if (!Array.isArray(ids)) return [];
+    return [...new Set(ids.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))];
+};
+
+const hydrateCachedCounts = (prefix, ids) => {
+    const counts = {};
+    const missing = [];
+
+    ids.forEach((id) => {
+        const cached = getCachedUnreadCount(`${prefix}_${id}`);
+        if (cached !== null) {
+            counts[id] = cached;
+        } else {
+            missing.push(id);
+        }
+    });
+
+    return { counts, missing };
+};
+
+app.post('/chat/unread-counts/author', async (req, res) => {
+    const authorIds = normalizePositiveIntegerIds(req.body?.authorIds);
+
+    if (authorIds.length === 0) {
+        return res.json({ success: true, counts: {} });
+    }
+
+    const { counts, missing } = hydrateCachedCounts('author', authorIds);
+
+    if (missing.length === 0) {
+        return res.json({ success: true, counts, source: 'cache' });
+    }
+
+    try {
+        const result = await pool.query(`
+            SELECT cs.author_id AS id, COUNT(*)::int AS unread_count
+            FROM chat_messages cm
+            INNER JOIN chat_sessions cs ON cm.session_id = cs.id
+            WHERE cs.author_id = ANY($1::int[])
+              AND cm.sender_type IN ('author', 'system')
+              AND cm.read_by_admin = FALSE
+            GROUP BY cs.author_id
+        `, [missing]);
+
+        const foundIds = new Set();
+        result.rows.forEach((row) => {
+            const id = Number(row.id);
+            const unreadCount = Number(row.unread_count) || 0;
+            if (Number.isInteger(id) && id > 0) {
+                counts[id] = unreadCount;
+                foundIds.add(id);
+                setCachedUnreadCount(`author_${id}`, unreadCount);
+            }
+        });
+
+        missing.forEach((id) => {
+            if (!foundIds.has(id)) {
+                counts[id] = 0;
+                setCachedUnreadCount(`author_${id}`, 0);
+            }
+        });
+
+        return res.json({ success: true, counts });
+    } catch (err) {
+        console.error('POST /chat/unread-counts/author error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to get unread counts.' });
+    }
+});
 
 // Get unread message count for specific paper's chat (author perspective)
 app.get('/chat/unread-count/paper/:paperId', async (req, res) => {
@@ -3598,7 +3613,8 @@ app.get('/chat/unread-count/paper/:paperId', async (req, res) => {
             SELECT COUNT(*) as unread_count
             FROM chat_messages cm
             INNER JOIN chat_sessions cs ON cm.session_id = cs.id
-            WHERE cs.author_id = (SELECT id FROM authors WHERE paper_id = $1 LIMIT 1)
+                        INNER JOIN authors a ON a.id = cs.author_id
+                        WHERE a.paper_id = $1
               AND cm.sender_type = 'admin'
               AND cm.read_by_author = FALSE
         `, [paperId]);
@@ -3614,6 +3630,68 @@ app.get('/chat/unread-count/paper/:paperId', async (req, res) => {
             return res.json({ success: true, unreadCount: cached, source: 'cache' });
         }
         return res.status(500).json({ success: false, message: 'Failed to get unread count.' });
+    }
+});
+
+app.post('/chat/unread-counts/paper', async (req, res) => {
+    const paperIds = Array.isArray(req.body?.paperIds)
+        ? [...new Set(req.body.paperIds.map((value) => String(value || '').trim()).filter(Boolean))]
+        : [];
+
+    if (paperIds.length === 0) {
+        return res.json({ success: true, counts: {} });
+    }
+
+    const counts = {};
+    const missing = [];
+
+    paperIds.forEach((paperId) => {
+        const cached = getCachedUnreadCount(`paper_${paperId}`);
+        if (cached !== null) {
+            counts[paperId] = cached;
+        } else {
+            missing.push(paperId);
+        }
+    });
+
+    if (missing.length === 0) {
+        return res.json({ success: true, counts, source: 'cache' });
+    }
+
+    try {
+        const result = await pool.query(`
+            SELECT a.paper_id AS id, COUNT(*)::int AS unread_count
+            FROM chat_messages cm
+            INNER JOIN chat_sessions cs ON cm.session_id = cs.id
+            INNER JOIN authors a ON a.id = cs.author_id
+            WHERE a.paper_id = ANY($1::text[])
+              AND cm.sender_type = 'admin'
+              AND cm.read_by_author = FALSE
+            GROUP BY a.paper_id
+        `, [missing]);
+
+        const foundIds = new Set();
+        result.rows.forEach((row) => {
+            const paperId = String(row.id || '').trim();
+            const unreadCount = Number(row.unread_count) || 0;
+            if (paperId) {
+                counts[paperId] = unreadCount;
+                foundIds.add(paperId);
+                setCachedUnreadCount(`paper_${paperId}`, unreadCount);
+            }
+        });
+
+        missing.forEach((paperId) => {
+            if (!foundIds.has(paperId)) {
+                counts[paperId] = 0;
+                setCachedUnreadCount(`paper_${paperId}`, 0);
+            }
+        });
+
+        return res.json({ success: true, counts });
+    } catch (err) {
+        console.error('POST /chat/unread-counts/paper error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to get unread counts.' });
     }
 });
 
@@ -3854,23 +3932,10 @@ app.post('/admin/documents', uploadAdminDocument.single('documentFile'), async (
             });
         }
 
-        // Always keep a local backup copy for redundancy.
-        const safeFileName = `${Date.now()}_${(req.file.originalname || 'document').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-        const localBackupPath = path.join(adminDocumentsBackupDir, safeFileName);
-        fs.writeFileSync(localBackupPath, req.file.buffer);
-
-        let storedName = safeFileName;
-        const localPublicPath = `/uploads/admin-documents/${safeFileName}`;
-        let filePath = localPublicPath;
-        let fileUrl = filePath;
-
-        try {
-            const s3Upload = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'admin-documents');
-            storedName = s3Upload.key;
-            fileUrl = await getS3SignedUrl(s3Upload.key);
-        } catch (s3Err) {
-            console.warn('S3 upload failed for admin document, local backup will be used:', s3Err.message);
-        }
+        const s3Upload = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'admin-documents');
+        const storedName = s3Upload.key;
+        const filePath = s3Upload.location;
+        const fileUrl = await getS3SignedUrl(s3Upload.key);
 
         const insertResult = await client.query(
             `INSERT INTO admin_documents
@@ -4003,7 +4068,6 @@ app.delete('/admin/documents/:id', async (req, res) => {
         }
 
         const storedName = result.rows[0].stored_name;
-        const filePath = result.rows[0].file_path;
         // Always attempt S3 delete for S3-style keys, regardless of local backup path.
         if (storedName && String(storedName).includes('/')) {
             try {
@@ -4014,22 +4078,6 @@ app.delete('/admin/documents/:id', async (req, res) => {
             } catch (s3Error) {
                 console.warn('S3 delete failed for admin document:', s3Error.message);
             }
-        }
-
-        // Also try deleting local backup copy if present.
-        try {
-            let localPath = '';
-            if (typeof filePath === 'string' && filePath.startsWith('/uploads/admin-documents/')) {
-                localPath = path.join(__dirname, filePath.replace(/^\//, ''));
-            } else {
-                localPath = path.join(adminDocumentsBackupDir, path.basename(String(storedName || '')));
-            }
-
-            if (localPath && fs.existsSync(localPath)) {
-                fs.unlinkSync(localPath);
-            }
-        } catch (localDeleteErr) {
-            console.warn('Local backup delete failed for admin document:', localDeleteErr.message);
         }
 
         return res.json({ success: true, deletedId: documentId });

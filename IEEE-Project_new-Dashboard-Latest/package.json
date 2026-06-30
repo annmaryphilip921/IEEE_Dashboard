@@ -8,6 +8,7 @@
     "restart": "node scripts/restart-server.js",
     "dev": "nodemon integrated-server.js",
     "db:seed": "node db/seed-admins.js",
+    "db:migrate": "node db/run-migrations.js",
     "test": "node -e \"console.log('Server ready!')\""
   },
   "dependencies": {

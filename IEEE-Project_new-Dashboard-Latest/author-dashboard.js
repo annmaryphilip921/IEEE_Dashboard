@@ -41,24 +41,80 @@ function loadAuthorData(author) {
     console.log('Author data loaded:', author);
 }
 
-async function checkPaperChatUnreadStatus(paperId, buttonElement) {
+const PAPER_CHAT_POLL_INTERVAL_MS = 60000;
+const paperChatUnreadRegistry = new Map();
+let paperChatUnreadTimer = null;
+
+function schedulePaperChatUnreadPolling(key, paperId, buttonElement) {
+    paperChatUnreadRegistry.set(key, { paperId, buttonElement });
+    refreshPaperChatUnreadStatuses();
+    ensurePaperChatUnreadTimer();
+}
+
+async function refreshPaperChatUnreadStatuses() {
+    if (document.hidden) return;
+
+    const entries = [...paperChatUnreadRegistry.entries()]
+        .filter(([, entry]) => entry && entry.buttonElement && document.contains(entry.buttonElement));
+
+    paperChatUnreadRegistry.clear();
+    entries.forEach(([key, entry]) => paperChatUnreadRegistry.set(key, entry));
+
+    const paperIds = [...new Set(entries.map(([, entry]) => String(entry.paperId || '').trim()).filter(Boolean))];
+    if (paperIds.length === 0) return;
+
     try {
-        const res = await fetch(`/chat/unread-count/paper/${encodeURIComponent(paperId)}`);
-        const data = await res.json();
-        
-        if (data.success && data.unreadCount > 0) {
-            buttonElement.classList.remove('chat-no-unread');
-            buttonElement.classList.add('chat-has-unread');
-            buttonElement.title = `${data.unreadCount} unread message${data.unreadCount !== 1 ? 's' : ''}`;
-        } else {
-            buttonElement.classList.remove('chat-has-unread');
-            buttonElement.classList.add('chat-no-unread');
-            buttonElement.title = 'No new messages';
+        const response = await fetch('/chat/unread-counts/paper', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paperIds })
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || 'Failed to load unread counts');
         }
+
+        const counts = data.counts || {};
+        entries.forEach(([, entry]) => {
+            const paperId = String(entry.paperId || '').trim();
+            const unreadCount = Number(counts[paperId] ?? 0);
+            if (unreadCount > 0) {
+                entry.buttonElement.classList.remove('chat-no-unread');
+                entry.buttonElement.classList.add('chat-has-unread');
+                entry.buttonElement.title = `${unreadCount} unread message${unreadCount !== 1 ? 's' : ''}`;
+            } else {
+                entry.buttonElement.classList.remove('chat-has-unread');
+                entry.buttonElement.classList.add('chat-no-unread');
+                entry.buttonElement.title = 'No new messages';
+            }
+        });
     } catch (err) {
         console.error('Error checking paper chat status:', err);
     }
 }
+
+function ensurePaperChatUnreadTimer() {
+    if (paperChatUnreadTimer) return;
+
+    paperChatUnreadTimer = setInterval(() => {
+        refreshPaperChatUnreadStatuses();
+    }, PAPER_CHAT_POLL_INTERVAL_MS);
+}
+
+window.addEventListener('beforeunload', () => {
+    if (paperChatUnreadTimer) {
+        clearInterval(paperChatUnreadTimer);
+        paperChatUnreadTimer = null;
+    }
+    paperChatUnreadRegistry.clear();
+});
+
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+        refreshPaperChatUnreadStatuses();
+    }
+});
 
 async function loadAuthorPapers(email) {
     const container = document.getElementById('papersTableContainer');
@@ -658,8 +714,7 @@ async function loadAcceptedPapersTable() {
         acceptedPapers.forEach((paper) => {
             const chatBtn = document.getElementById(`chat-btn-${paper.paper_id}`);
             if (chatBtn) {
-                checkPaperChatUnreadStatus(paper.paper_id, chatBtn);
-                setInterval(() => checkPaperChatUnreadStatus(paper.paper_id, chatBtn), 10000);
+                schedulePaperChatUnreadPolling(`accepted-${paper.paper_id}`, paper.paper_id, chatBtn);
             }
         });
     } catch (err) {
@@ -806,8 +861,7 @@ async function loadCompletedPapersTable() {
         acceptedPapers.forEach((paper) => {
             const chatBtn = document.getElementById(`chat-btn-completed-${paper.id}`);
             if (chatBtn) {
-                checkPaperChatUnreadStatus(paper.paper_id, chatBtn);
-                setInterval(() => checkPaperChatUnreadStatus(paper.paper_id, chatBtn), 10000);
+                schedulePaperChatUnreadPolling(`completed-${paper.id}`, paper.paper_id, chatBtn);
             }
         });
     } catch (err) {

@@ -44,24 +44,79 @@ function loadUserInfo() {
     }
 }
 
-async function checkAuthorChatUnreadStatus(authorId, buttonElement) {
+const AUTHOR_CHAT_POLL_INTERVAL_MS = 60000;
+const authorChatUnreadRegistry = new Map();
+let authorChatUnreadTimer = null;
+
+function scheduleAuthorChatUnreadPolling(key, authorId, buttonElement) {
+    authorChatUnreadRegistry.set(key, { authorId, buttonElement });
+    refreshAuthorChatUnreadStatuses();
+    ensureAuthorChatUnreadTimer();
+}
+
+async function refreshAuthorChatUnreadStatuses() {
+    if (document.hidden) return;
+
+    const entries = [...authorChatUnreadRegistry.entries()]
+        .filter(([, entry]) => entry && entry.buttonElement && document.contains(entry.buttonElement));
+
+    authorChatUnreadRegistry.clear();
+    entries.forEach(([key, entry]) => authorChatUnreadRegistry.set(key, entry));
+
+    const authorIds = [...new Set(entries.map(([, entry]) => entry.authorId))];
+    if (authorIds.length === 0) return;
+
     try {
-        const res = await fetch(`/chat/unread-count/author/${authorId}`);
-        const data = await res.json();
-        
-        if (data.success && data.unreadCount > 0) {
-            buttonElement.classList.remove('chat-no-unread');
-            buttonElement.classList.add('chat-has-unread');
-            buttonElement.title = `${data.unreadCount} unread message${data.unreadCount !== 1 ? 's' : ''}`;
-        } else {
-            buttonElement.classList.remove('chat-has-unread');
-            buttonElement.classList.add('chat-no-unread');
-            buttonElement.title = 'No new messages';
+        const response = await fetch('/chat/unread-counts/author', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ authorIds })
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || 'Failed to load unread counts');
         }
+
+        const counts = data.counts || {};
+        entries.forEach(([, entry]) => {
+            const unreadCount = Number(counts[String(entry.authorId)] ?? counts[entry.authorId] ?? 0);
+            if (unreadCount > 0) {
+                entry.buttonElement.classList.remove('chat-no-unread');
+                entry.buttonElement.classList.add('chat-has-unread');
+                entry.buttonElement.title = `${unreadCount} unread message${unreadCount !== 1 ? 's' : ''}`;
+            } else {
+                entry.buttonElement.classList.remove('chat-has-unread');
+                entry.buttonElement.classList.add('chat-no-unread');
+                entry.buttonElement.title = 'No new messages';
+            }
+        });
     } catch (err) {
         console.error('Error checking author chat status:', err);
     }
 }
+
+function ensureAuthorChatUnreadTimer() {
+    if (authorChatUnreadTimer) return;
+
+    authorChatUnreadTimer = setInterval(() => {
+        refreshAuthorChatUnreadStatuses();
+    }, AUTHOR_CHAT_POLL_INTERVAL_MS);
+}
+
+window.addEventListener('beforeunload', () => {
+    if (authorChatUnreadTimer) {
+        clearInterval(authorChatUnreadTimer);
+        authorChatUnreadTimer = null;
+    }
+    authorChatUnreadRegistry.clear();
+});
+
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+        refreshAuthorChatUnreadStatuses();
+    }
+});
 
 function initializeDashboard() {
     // Logout functionality
@@ -174,7 +229,7 @@ function loadDashboardContent() {
                         <i class="fas fa-paper-plane"></i>
                     </div>
                     <div class="timeline-content">
-                        <div class="timeline-title">Invitation Send</div>
+                        <div class="timeline-title">Invitation/Rejection Notice</div>
                         <div class="timeline-date">Pending</div>
                     </div>
                     <div class="timeline-connector"></div>
@@ -340,11 +395,6 @@ function loadTimelineSpecificContent(timelineType) {
                             <i class="fas fa-calendar-alt"></i> Dates
                         </button>
                     </div>
-                    <div class="submit-section">
-                        <button class="btn-submit" onclick="submitLoginsCreated()">
-                            <i class="fas fa-check"></i> Submit
-                        </button>
-                    </div>
                 </div>
             `;
             break;
@@ -358,7 +408,7 @@ function loadTimelineSpecificContent(timelineType) {
                     </div>
                     <div class="dashboard-actions">
                         <button class="btn-primary" onclick="openSendInvitationModal()">
-                            <i class="fas fa-envelope"></i> Send Invitations
+                            <i class="fas fa-envelope"></i> Send Invitation/Rejection
                         </button>
                         <button class="btn-info track-progress-btn" onclick="openProgressTrackingModal('invitation-send')">
                             <i class="fas fa-chart-line"></i> Track Progress
@@ -1676,7 +1726,7 @@ async function openProgressTrackingModal(stage) {
     // Get stage title
     const stageTitles = {
         "logins-created": "Logins Created",
-        "invitation-send": "Invitation Send",
+        "invitation-send": "Invitation/Rejection Notice",
         "first-draft-reminder": "First Draft",
         "paper-submission": "Paper Submission",
         "review-in-progress": "Review in Progress"
@@ -2020,9 +2070,7 @@ async function openProgressTrackingModal(stage) {
             relevantAuthors.forEach((author) => {
                 const chatBtn = document.getElementById(`chat-btn-author-${author.id}`);
                 if (chatBtn) {
-                    checkAuthorChatUnreadStatus(author.id, chatBtn);
-                    // Check every 30 seconds (reduced from 10 for better performance)
-                    setInterval(() => checkAuthorChatUnreadStatus(author.id, chatBtn), 30000);
+                    scheduleAuthorChatUnreadPolling(`progress-${stage}-${author.id}`, author.id, chatBtn);
                 }
             });
         }
@@ -2473,16 +2521,6 @@ async function openInvitationTrackingModal() {
                     <td class="itr-date">${sentDate}</td>
                     <td><span class="itr-status itr-status-${statusClass}">${statusIcon} ${statusText}</span></td>
                     <td class="itr-date">${responseDate}</td>
-                    <td>
-                        ${invitationSent ?
-                            `<button class="itr-action-btn itr-action-resend" onclick="resendInvitation('${author.userId}')">
-                                <i class="fas fa-paper-plane"></i> Resend
-                            </button>` :
-                            `<button class="itr-action-btn itr-action-send" onclick="sendInvitationToAuthor('${author.userId}')">
-                                <i class="fas fa-envelope"></i> Send
-                            </button>`
-                        }
-                    </td>
                 </tr>
             `;
         }).join('');
@@ -2548,7 +2586,6 @@ async function openInvitationTrackingModal() {
                                     <th style="width:110px;">Invitation Sent</th>
                                     <th style="width:150px;">Response Status</th>
                                     <th style="width:110px;">Response Date</th>
-                                    <th style="width:100px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="invitationTableBody">
@@ -2667,7 +2704,7 @@ function openUpdateProgressModal(authorId, stage) {
     const stageProgress = author.progress.stages[stage];
     const stageTitles = {
         "logins-created": "Logins Created",
-        "invitation-send": "Invitation Send",
+        "invitation-send": "Invitation/Rejection Notice",
         "first-draft-reminder": "First Draft",
         "paper-submission": "Paper Submission",
         "review-in-progress": "Review in Progress"
@@ -3985,7 +4022,7 @@ async function openSendInvitationModal() {
         <div class="modal-overlay send-invitation-modal" id="sendInvitationModal">
             <div class="modal-container large-modal">
                 <div class="modal-header">
-                    <h3><i class="fas fa-envelope"></i> Send Invitations</h3>
+                    <h3><i class="fas fa-envelope"></i> Send Invitation/Rejection</h3>
                     <button class="modal-close" onclick="closeSendInvitationModal()">&times;</button>
                 </div>
                 <div class="modal-body">
@@ -6310,9 +6347,7 @@ async function loadDraftReviews() {
         const author = item.author || {};
         const chatBtn = document.getElementById(`chat-btn-author-${author.id}`);
         if (chatBtn) {
-            checkAuthorChatUnreadStatus(author.id, chatBtn);
-            // Check every 30 seconds (reduced from 10 for better performance)
-            setInterval(() => checkAuthorChatUnreadStatus(author.id, chatBtn), 30000);
+            scheduleAuthorChatUnreadPolling(`draft-review-${author.id}`, author.id, chatBtn);
         }
     });
 }
