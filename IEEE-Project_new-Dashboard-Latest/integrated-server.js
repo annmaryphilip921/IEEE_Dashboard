@@ -2902,11 +2902,13 @@ app.post('/authors/:authorId/submissions/first-draft', uploadDraft.single('draft
         );
 
         const submissionRow = insertResult.rows[0];
-        await attachSubmissionToChatIfMissing({
-            authorId,
-            submissionRow,
-            client
-        });
+        if (!isFinalPaper) {
+            await attachSubmissionToChatIfMissing({
+                authorId,
+                submissionRow,
+                client
+            });
+        }
 
         await client.query(
             `UPDATE author_progress
@@ -3049,22 +3051,6 @@ app.post('/chat/sessions/ensure', async (req, res) => {
 
         const { row, created } = await getOrCreateChatSession(authorId);
 
-        const latestSubmission = await pool.query(
-            `SELECT id, file_name, stored_name, mime_type, file_size, submitted_at
-             FROM paper_submissions
-             WHERE author_id = $1
-             ORDER BY submitted_at DESC
-             LIMIT 1`,
-            [authorId]
-        );
-        if (latestSubmission.rowCount > 0) {
-            await attachSubmissionToChatIfMissing({
-                authorId,
-                submissionRow: latestSubmission.rows[0],
-                client: pool
-            });
-        }
-
         const refreshedSession = await pool.query(
             'SELECT id, author_id, created_at, updated_at, last_message_at FROM chat_sessions WHERE id = $1',
             [row.id]
@@ -3112,21 +3098,6 @@ app.get('/chat/sessions/by-author/:authorId', async (req, res) => {
 
         const { row } = await getOrCreateChatSession(authorId);
 
-        const latestSubmission = await pool.query(
-            `SELECT id, file_name, stored_name, mime_type, file_size, submitted_at
-             FROM paper_submissions
-             WHERE author_id = $1
-             ORDER BY submitted_at DESC
-             LIMIT 1`,
-            [authorId]
-        );
-        if (latestSubmission.rowCount > 0) {
-            await attachSubmissionToChatIfMissing({
-                authorId,
-                submissionRow: latestSubmission.rows[0],
-                client: pool
-            });
-        }
         const metricsResult = await pool.query(
             `SELECT
                 COUNT(*)::int AS total_messages,
@@ -3297,6 +3268,10 @@ app.get('/chat/sessions/:sessionId/messages', async (req, res) => {
             `SELECT id, sender_type, sender_name, message, attachments, read_by_admin, read_by_author, created_at
              FROM chat_messages
              WHERE session_id = $1
+               AND NOT (
+                   sender_type = 'system'
+                   AND message ILIKE 'First draft submitted:%'
+               )
              ORDER BY created_at ASC`,
             [sessionId]
         );
